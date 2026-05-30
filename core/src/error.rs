@@ -7,9 +7,6 @@ pub enum Error {
     #[error("{0:?}")]
     Driver(#[from] DriverError),
 
-    #[error("ToClvm error: {0}")]
-    ToClvm(#[from] clvm_traits::ToClvmError),
-
     #[error("ParseError: {0}")]
     Parse(String),
 
