@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import "./globals.css";
+import WalletProvider from "./components/WalletProvider";
+import ToastProvider from "./components/ToastProvider";
 
 export const metadata: Metadata = {
   title: "CHIP-0035 DataLayer Store Demo",
@@ -13,8 +16,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, fontFamily: "sans-serif", minHeight: "100vh" }}>
-        {children}
+      <body>
+        <WalletProvider>
+          {children}
+          <ToastProvider />
+        </WalletProvider>
       </body>
     </html>
   );
