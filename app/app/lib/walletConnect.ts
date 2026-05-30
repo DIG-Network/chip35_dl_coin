@@ -197,10 +197,8 @@ export async function connect(): Promise<{
         chains: ["chia:mainnet"],
         methods: [
           "chia_getAddress",
-          "chip0002_getPublicKeys",
           "chip0002_getAssetCoins",
           "chip0002_signCoinSpends",
-          "chip0002_filterUnlockedCoins",
         ],
         events: [],
       },

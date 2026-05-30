@@ -155,40 +155,32 @@ export async function pushTx(spendBundle: SpendBundleJson): Promise<string> {
     spend_bundle: spendBundle,
   });
 
-  const fullSerialized =
-    typeof raw === "object" && raw !== null
-      ? JSON.stringify(raw)
-      : String(raw);
-  const fullUpper = fullSerialized.toUpperCase();
-
-  if (fullUpper.includes("ALREADY_INCLUDING_TRANSACTION")) {
-    return "ALREADY_INCLUDING_TRANSACTION";
-  }
-
   const resp =
     typeof raw === "object" && raw !== null && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
 
+  const status =
+    typeof resp.status === "string" ? resp.status : undefined;
+
   const success =
     resp.success === true ||
     resp.success === 1 ||
-    String(resp.success).toLowerCase() === "true";
+    String(resp.success).toLowerCase() === "true" ||
+    status === "SUCCESS" ||
+    status === "ALREADY_INCLUDING_TRANSACTION";
 
   if (success) {
-    // Detect contradictory success=true with embedded failure markers
-    if (
-      fullUpper.includes("MINTING_COIN") ||
-      fullUpper.includes("DOUBLE_SPEND") ||
-      /\bTRANSACTION_FAILED\b/.test(fullUpper)
-    ) {
-      const hint =
-        fullUpper.match(/MINTING_COIN|DOUBLE_SPEND|INVALID_SPEND_BUNDLE/)?.[0] ??
-        "unknown failure";
-      throw new Error(`/push_tx rejected: ${hint}`);
-    }
-    return typeof resp.status === "string" ? resp.status : "SUCCESS";
+    // Return status string on success — no substring scanning needed.
+    return status ?? "SUCCESS";
   }
+
+  // Non-success branch: extract a useful error detail.
+  const fullSerialized =
+    typeof raw === "object" && raw !== null
+      ? JSON.stringify(raw)
+      : String(raw);
+  const fullUpper = fullSerialized.toUpperCase();
 
   const detail =
     (typeof resp.error === "string" && resp.error) ||

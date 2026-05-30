@@ -293,25 +293,23 @@ export function dataStoreFromRegistryJson(j: DataStoreJson): DataStoreWasm {
 //
 // This is called lazily from storeOps and registry, never at import time.
 
-/** CLVM big-endian minimal-length signed integer encoding. */
+/**
+ * CLVM big-endian minimal-length signed integer encoding for coin amounts.
+ * Amounts are always non-negative u64, so only the positive path is needed:
+ * minimal big-endian with a leading 0x00 byte when the high bit is set
+ * (correct CLVM positive-int rule).
+ */
 function clvmEncodeInt(n: bigint): Uint8Array {
   if (n === 0n) return new Uint8Array(0);
-  const isNeg = n < 0n;
-  let v = isNeg ? -n - 1n : n;
   const bytes: number[] = [];
+  let v = n;
   while (v > 0n) {
     bytes.unshift(Number(v & 0xffn));
     v >>= 8n;
   }
-  // High bit: need leading 0x00 for positive values with high bit set,
-  // 0xff for negative values without high bit set.
-  if (!isNeg && bytes[0] & 0x80) {
+  // Add a leading 0x00 when the high bit is set to keep the value positive.
+  if (bytes[0] & 0x80) {
     bytes.unshift(0x00);
-  } else if (isNeg) {
-    // For negative: flip bits and apply sign
-    for (let i = 0; i < bytes.length; i++) bytes[i] ^= 0xff;
-    if (bytes[bytes.length - 1] === 0xff) bytes.pop();
-    if (!(bytes[0] & 0x80)) bytes.unshift(0xff);
   }
   return new Uint8Array(bytes);
 }
