@@ -36,6 +36,7 @@ export default function UpdateForm({
   const [newRootHash, setNewRootHash] = useState(initHash);
   const [newLabel, setNewLabel] = useState(currentLabel);
   const [newDescription, setNewDescription] = useState(currentDescription);
+  const [fee, setFee] = useState("1000000");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
 
@@ -46,6 +47,14 @@ export default function UpdateForm({
     const cleanHash = newRootHash.replace(/^0x/i, "");
     if (!/^[0-9a-fA-F]{64}$/.test(cleanHash)) {
       toast.error("Root hash must be 64 hex characters.");
+      return;
+    }
+    let feeMojos: bigint;
+    try {
+      feeMojos = BigInt(fee);
+      if (feeMojos < 0n) throw new Error("negative");
+    } catch {
+      toast.error("Fee must be a non-negative integer (mojos).");
       return;
     }
     setSubmitting(true);
@@ -59,6 +68,7 @@ export default function UpdateForm({
           newRootHashHex: cleanHash,
           newLabel: newLabel.trim() || undefined,
           newDescription: newDescription.trim() || undefined,
+          feeMojos,
         },
         (s) => {
           setPhase(s);
@@ -120,6 +130,19 @@ export default function UpdateForm({
             Random
           </button>
         </div>
+      </label>
+
+      <label style={styles.label}>
+        Fee <span style={styles.optional}>(mojos)</span>
+        <input
+          style={{ ...styles.input, width: 160 }}
+          type="number"
+          min="0"
+          step="1"
+          value={fee}
+          onChange={(e) => setFee(e.target.value)}
+          disabled={submitting}
+        />
       </label>
 
       <div style={{ display: "flex", gap: 10 }}>
