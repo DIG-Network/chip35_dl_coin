@@ -1,0 +1,104 @@
+; delegation_layer.clsp
+; for DataLayer.storage by yakuhito
+
+;; Allows the owner of a store to delegate a fixed set of capabilities to
+;; other puzzle hashes.
+;; This layer will re-create itself when a delegated puzzle is running to 
+;; prevent take-over attacks.
+;; Capabilities can be further restricted via filters.
+
+;; Warning: This puzzle only works for the default data layer metadata updater (11).
+;; Warning: If multiple -13 conditions are emitted, the last one will be used to determine the new Merkle root.
+;;          This layer will *NOT* raise in the case above.
+
+(mod (
+    MOD_HASH
+    LAUNCHER_ID
+    INNER_PUZZLE_HASH
+    MERKLE_ROOT
+    merkle_proof ; () if running inner puzzle
+    puzzle_reveal
+    puzzle_solution
+  )
+
+  (include condition_codes.clib)
+  (include merkle_utils.clib)
+  (include sha256tree.clib)
+  (include curry.clib)
+
+  (defconstant NEW_MERKLE_ROOT_CONDITION -13)
+
+  ; only one odd CREATE_COIN enforced in upper layers
+  (defun morph_conditions (MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH conditions new_merkle_root_info)
+    (if conditions
+      (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
+        (morph_conditions
+          MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH
+          (r conditions)
+          (r (f conditions))
+        )
+        ; else
+        (c
+          ; don't allow delegated puzzles to use the metadata updater to create extra conditions
+          ; or to change the metadata updater puzzle hash
+          ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
+          ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
+          (if
+            (if (= (f (f conditions)) -24)
+              (all
+                ; raise if condition is -24 but [conditions] != 0
+                (= (f (r (f (r (r (f conditions)))))) ())
+                ; or raise if condition is -24 and [new updater ph] != (sha256 1 11)
+                (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
+              )
+              ; else
+              1
+            )
+            (f conditions)
+            ; else
+            (x)
+          )
+          (morph_conditions
+            MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH
+            (r conditions)
+            new_merkle_root_info
+          )
+        )
+      )
+      ; else
+      (list
+        (list
+          CREATE_COIN
+          (curry_hashes_inline MOD_HASH
+            (sha256 1 MOD_HASH)
+            (sha256 1 LAUNCHER_ID)
+            (sha256 1 INNER_PUZZLE_HASH)
+            (sha256 1 (f new_merkle_root_info))
+          )
+          1
+          (r new_merkle_root_info)
+        )
+      )
+    )
+  )
+
+ (defun main (MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof conditions puzzle_hash)
+    (if (= puzzle_hash INNER_PUZZLE_HASH)
+      conditions
+      ; else
+      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof))
+        (morph_conditions
+          MOD_HASH
+          LAUNCHER_ID
+          INNER_PUZZLE_HASH
+          conditions
+          (list MERKLE_ROOT LAUNCHER_ID) 
+        )
+        ; else
+        (x)
+      )
+    )
+  )
+
+ (main MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof (a puzzle_reveal puzzle_solution) (sha256tree puzzle_reveal)) 
+)
