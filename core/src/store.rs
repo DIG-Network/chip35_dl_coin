@@ -353,8 +353,8 @@ pub fn oracle_spend(
 /// Decode a hex-encoded spend bundle into its coin spends (keyless).
 pub fn hex_spend_bundle_to_coin_spends(hex_str: &str) -> Result<Vec<CoinSpend>, Error> {
     use chia_traits::Streamable;
-    let bytes = hex::decode(hex_str).map_err(|e| Error::Parse(e.to_string()))?;
-    let spend_bundle = SpendBundle::from_bytes(&bytes).map_err(|e| Error::Parse(e.to_string()))?;
+    let bytes = hex::decode(hex_str).map_err(|e| Error::Parse(format!("hex decode: {e}")))?;
+    let spend_bundle = SpendBundle::from_bytes(&bytes).map_err(|e| Error::Parse(format!("bundle parse: {e}")))?;
     Ok(spend_bundle.coin_spends)
 }
 
@@ -363,6 +363,6 @@ pub fn spend_bundle_to_hex(spend_bundle: &SpendBundle) -> Result<String, Error> 
     use chia_traits::Streamable;
     let bytes = spend_bundle
         .to_bytes()
-        .map_err(|e| Error::Parse(e.to_string()))?;
+        .map_err(|e| Error::Parse(format!("bundle serialize: {e}")))?;
     Ok(hex::encode(bytes))
 }
