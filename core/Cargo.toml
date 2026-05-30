@@ -1,0 +1,24 @@
+[package]
+name = "chip35-dl-coin"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Isolated CHIP-0035 Chia DataLayer store coin driver (offline spend-bundle construction)."
+repository = "https://github.com/DIG-Network/chip35_dl_coin"
+
+[dependencies]
+chia-bls = "0.26.0"
+chia-protocol = "0.26.0"
+chia-puzzle-types = "0.26.0"
+chia-puzzles = "0.20.1"
+chia-traits = "0.26.0"
+chia-sdk-driver = { version = "0.30.0", features = ["chip-0035", "action-layer"] }
+chia-sdk-types  = { version = "0.30.0", features = ["chip-0035", "action-layer"] }
+chia-sdk-utils  = "0.30.0"
+clvm-traits = "0.26.0"
+clvm-utils  = "0.26.0"
+clvmr = "0.14.0"
+thiserror = "1"
+hex = "0.4"
+hex-literal = "0.4"
+num-bigint = "0.4"
