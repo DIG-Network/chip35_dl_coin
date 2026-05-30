@@ -3,4 +3,3 @@
 wasm/pkg
 wasm/pkg-node
 node_modules
-Cargo.lock
