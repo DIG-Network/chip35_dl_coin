@@ -358,6 +358,53 @@ pub fn oracle_spend(
     })
 }
 
+/// Build coin spends that reserve `fee` mojos from the spender's own XCH coins,
+/// asserting concurrent spend of `coin_ids` (e.g. the singleton being updated/melted),
+/// returning change to the spender. Lets a singleton-only op (update/melt) carry a fee.
+pub fn add_fee(
+    spender_synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    coin_ids: Vec<Bytes32>,
+    fee: u64,
+) -> Result<Vec<CoinSpend>, WalletError> {
+    if selected_coins.is_empty() {
+        return Err(WalletError::Parse("selected_coins is empty".to_string()));
+    }
+    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+    let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
+
+    let mut ctx = SpendContext::new();
+    let p2 = StandardLayer::new(spender_synthetic_key);
+
+    let lead_coin = selected_coins[0];
+    let lead_coin_name = lead_coin.coin_id();
+
+    for coin in selected_coins.into_iter().skip(1) {
+        p2.spend(
+            &mut ctx,
+            coin,
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
+        )?;
+    }
+
+    let mut lead_coin_conditions = Conditions::new().reserve_fee(fee);
+    if total_amount_from_coins > fee {
+        let hint = ctx.hint(spender_puzzle_hash)?;
+        lead_coin_conditions = lead_coin_conditions.create_coin(
+            spender_puzzle_hash,
+            total_amount_from_coins - fee,
+            hint,
+        );
+    }
+    for coin_id in coin_ids {
+        lead_coin_conditions = lead_coin_conditions.assert_concurrent_spend(coin_id);
+    }
+
+    p2.spend(&mut ctx, lead_coin, lead_coin_conditions)?;
+
+    Ok(ctx.take())
+}
+
 /// Decode a hex-encoded spend bundle into its coin spends (keyless).
 pub fn hex_spend_bundle_to_coin_spends(hex_str: &str) -> Result<Vec<CoinSpend>, Error> {
     use chia_traits::Streamable;

@@ -21,10 +21,11 @@ use crate::types::{
     signature, to_js, DataStore, SuccessResponse,
 };
 use chip35_dl_coin::{
-    hex_spend_bundle_to_coin_spends as core_hex_to_css, melt_store as core_melt_store,
-    mint_store as core_mint_store, oracle_spend as core_oracle_spend,
-    spend_bundle_to_hex as core_sb_to_hex, update_store_metadata as core_update_meta,
-    update_store_ownership as core_update_owner, DataStoreInnerSpend, SpendBundle as RustSpendBundle,
+    add_fee as core_add_fee, hex_spend_bundle_to_coin_spends as core_hex_to_css,
+    melt_store as core_melt_store, mint_store as core_mint_store,
+    oracle_spend as core_oracle_spend, spend_bundle_to_hex as core_sb_to_hex,
+    update_store_metadata as core_update_meta, update_store_ownership as core_update_owner,
+    DataStoreInnerSpend, SpendBundle as RustSpendBundle,
 };
 
 #[wasm_bindgen(js_name = "mintStore")]
@@ -183,5 +184,25 @@ pub fn spend_bundle_to_hex(spend_bundle: JsValue) -> Result<String, JsValue> {
 #[wasm_bindgen(js_name = "hexSpendBundleToCoinSpends")]
 pub fn hex_spend_bundle_to_coin_spends(hex: String) -> Result<JsValue, JsValue> {
     let css = core_hex_to_css(&hex).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    coin_spends_to_js(&css)
+}
+
+#[wasm_bindgen(js_name = "addFee")]
+pub fn add_fee(
+    spender_synthetic_key: &[u8],
+    selected_coins: JsValue,    // Coin[]
+    assert_coin_ids: JsValue,   // Uint8Array[] (32-byte coin ids)
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    // CoinSpend[]
+    let ids_raw: Vec<serde_bytes::ByteBuf> = from_js(assert_coin_ids)?;
+    let ids = ids_raw.iter().map(|b| bytes32(b)).collect::<Result<Vec<_>, _>>()?;
+    let css = core_add_fee(
+        public_key(spender_synthetic_key)?,
+        coins_from_js(selected_coins)?,
+        ids,
+        fee,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
     coin_spends_to_js(&css)
 }
