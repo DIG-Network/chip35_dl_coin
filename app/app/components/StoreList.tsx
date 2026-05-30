@@ -24,6 +24,8 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletePhase, setDeletePhase] = useState<string | null>(null);
+  // Per-store delete fee (mojos); keyed by launcherId
+  const [deleteFee, setDeleteFee] = useState<Record<string, string>>({});
 
   const loadStores = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -79,12 +81,24 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
 
   const handleDelete = async (entry: RegistryEntry) => {
     if (!window.confirm(`Melt (permanently delete) store "${entry.label || entry.launcherId.slice(0, 14) + "…"}"?\n\nThis cannot be undone.`)) return;
+
+    // Parse the delete fee for this store
+    const feeStr = deleteFee[entry.launcherId] ?? "1000000";
+    let feeMojos: bigint;
+    try {
+      feeMojos = BigInt(feeStr);
+      if (feeMojos < 0n) throw new Error("negative");
+    } catch {
+      toast.error("Delete fee must be a non-negative integer (mojos).");
+      return;
+    }
+
     setDeletingId(entry.launcherId);
     setDeletePhase("Melting store…");
     const toastId = toast.loading("Melting store…");
     try {
       const { del } = await import("../lib/storeOps");
-      await del(entry.launcherId, (s) => {
+      await del(entry.launcherId, feeMojos, (s) => {
         setDeletePhase(s);
         toast.loading(s, { id: toastId });
       });
@@ -174,6 +188,29 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                     >
                       {isEditing ? "Cancel Edit" : "Update"}
                     </button>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      title="Delete fee (mojos)"
+                      placeholder="Fee (mojos)"
+                      value={deleteFee[entry.launcherId] ?? "1000000"}
+                      onChange={(e) =>
+                        setDeleteFee((prev) => ({
+                          ...prev,
+                          [entry.launcherId]: e.target.value,
+                        }))
+                      }
+                      disabled={isDeleting}
+                      style={{
+                        width: 120,
+                        border: "1px solid #d1d5db",
+                        borderRadius: 7,
+                        padding: "4px 8px",
+                        fontSize: "0.8rem",
+                        background: "#fafafa",
+                      }}
+                    />
                     <button
                       style={{ ...styles.btnAction, color: "#dc2626", borderColor: "#dc2626" }}
                       onClick={() => handleDelete(entry)}

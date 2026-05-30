@@ -24,6 +24,7 @@ import {
   pushTx,
   waitForCoinConfirmation,
   waitForCoinSpent,
+  getCoinRecordByName,
 } from "./coinset";
 import {
   coinSpendToWallet,
@@ -41,6 +42,10 @@ import {
   getStore,
   type RegistryEntry,
 } from "./registry";
+import {
+  markCoinSpent,
+  isCoinPendingSpent,
+} from "./pendingCoins";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -61,31 +66,98 @@ function assertAggSigHex(sig: string): string {
   return sig;
 }
 
-/** Pick an XCH coin from Sage that covers `minMojos`. Returns null if none found. */
-async function pickXchCoin(minMojos: bigint): Promise<{
-  coin: { parentCoinInfo: Uint8Array; puzzleHash: Uint8Array; amount: bigint };
+// Wasm coin shape (matches addFee / mintStore parameter types)
+type WasmCoin = {
+  parentCoinInfo: Uint8Array;
+  puzzleHash: Uint8Array;
+  amount: bigint;
+};
+
+// Wasm CoinSpend shape
+type WasmCoinSpend = {
+  coin: WasmCoin;
+  puzzleReveal: Uint8Array;
+  solution: Uint8Array;
+};
+
+/**
+ * Result returned by pickXchCoin — includes the coin id hex so callers
+ * can mark it as spent after a successful push.
+ */
+interface PickedCoin {
+  coin: WasmCoin;
   syntheticPkHex: string;
-} | null> {
+  /** Lowercase hex coin id (no 0x prefix). */
+  coinIdHex: string;
+}
+
+/**
+ * Pick an XCH coin from Sage that covers `minMojos`.
+ *
+ * Selection algorithm (robust, avoids DOUBLE_SPEND):
+ *   1. Fetch up to 200 XCH coins from Sage.
+ *   2. Filter out locked coins, already-spent coins, and coins with no puzzle.
+ *   3. Keep only coins with amount >= minMojos. Sort ascending (smallest first).
+ *   4. For each candidate:
+ *      a. Compute its coin id.
+ *      b. Skip if marked as locally pending-spent (localStorage TTL 15 min).
+ *      c. Verify on-chain via getCoinRecordByName: if record exists and spent
+ *         index > 0, skip (coin already spent on-chain).
+ *      d. Accept the first candidate that passes all checks.
+ *   5. Return null if no qualifying coin found.
+ */
+async function pickXchCoin(minMojos: bigint): Promise<PickedCoin | null> {
   const raw = await getAssetCoins(null, null, false, 0, 200);
   if (!raw) return null;
 
-  for (const entry of raw) {
-    if (!entry?.coin || !entry.puzzle) continue;
+  // Build candidate list: filter, then sort ascending by amount
+  const candidates = raw.filter((entry) => {
+    if (!entry?.coin || !entry.puzzle) return false;
+    if (entry.locked) return false;
+    // Both camelCase and snake_case variants may appear depending on Sage version
+    const spentIdx =
+      (entry as { spent_block_index?: number }).spent_block_index ??
+      entry.spentBlockIndex ??
+      0;
+    if (spentIdx) return false;
     const amount = BigInt(entry.coin.amount);
-    if (amount < minMojos) continue;
+    if (amount < minMojos) return false;
+    return true;
+  });
 
-    const pk = await syntheticPkHexFromCoinPuzzle(entry.puzzle);
+  candidates.sort((a, b) => {
+    const diff = BigInt(a.coin.amount) - BigInt(b.coin.amount);
+    return diff < 0n ? -1 : diff > 0n ? 1 : 0;
+  });
+
+  const nowMs = Date.now();
+
+  for (const entry of candidates) {
+    const pk = await syntheticPkHexFromCoinPuzzle(entry.puzzle!);
     if (!pk) continue;
 
-    // Convert snake_case coin to wasm shape
     const parentCoinInfo = hex0xToBytes(entry.coin.parent_coin_info);
     const puzzleHash = hex0xToBytes(entry.coin.puzzle_hash);
+    const amount = BigInt(entry.coin.amount);
+    const wasmCoin: WasmCoin = { parentCoinInfo, puzzleHash, amount };
 
-    return {
-      coin: { parentCoinInfo, puzzleHash, amount },
-      syntheticPkHex: pk,
-    };
+    // Compute coin id
+    const idHex = await coinId(wasmCoin);
+
+    // Local pending-spent check
+    if (isCoinPendingSpent(idHex, nowMs)) continue;
+
+    // On-chain verification: skip if the fullnode says it's spent
+    const record = await getCoinRecordByName(idHex);
+    if (record && (record.spentHeight ?? 0) > 0) {
+      // Coin is already spent on-chain; mark it locally so we don't re-check
+      markCoinSpent(idHex, nowMs);
+      continue;
+    }
+
+    return { coin: wasmCoin, syntheticPkHex: pk, coinIdHex: idHex };
   }
+
   return null;
 }
 
@@ -160,11 +232,7 @@ export async function mint(
     params.feeMojos
   ) as { coinSpends: unknown[]; newStore: unknown };
 
-  const coinSpends = result.coinSpends as Array<{
-    coin: { parentCoinInfo: Uint8Array; puzzleHash: Uint8Array; amount: bigint };
-    puzzleReveal: Uint8Array;
-    solution: Uint8Array;
-  }>;
+  const coinSpends = result.coinSpends as WasmCoinSpend[];
   const newStore = result.newStore as DataStoreWasm;
 
   // 5. Convert to WalletConnect wire format
@@ -177,7 +245,23 @@ export async function mint(
   // Push to coinset
   onStatus?.("Pushing spend bundle…");
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
-  await pushTx(spendBundle);
+  try {
+    await pushTx(spendBundle);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Mark the coin as spent regardless — it may be in the mempool from a
+    // previous attempt, which would cause the DOUBLE_SPEND on this one.
+    markCoinSpent(selected.coinIdHex, Date.now());
+    if (msg.toUpperCase().includes("DOUBLE_SPEND")) {
+      throw new Error(
+        "Funding coin was already spent / still in the mempool. Try again to select a different coin."
+      );
+    }
+    throw err;
+  }
+
+  // Mark funding coin as pending-spent so an immediate retry uses a different coin.
+  markCoinSpent(selected.coinIdHex, Date.now());
 
   // 7. Compute coin id for the new singleton's coin
   const currentCoinIdHex = await coinId(newStore.coin);
@@ -216,12 +300,16 @@ export interface UpdateMetadataParams {
   newLabel?: string;
   newDescription?: string;
   newBytes?: bigint;
+  /** Optional fee in mojos to attach to the spend bundle via addFee. */
+  feeMojos?: bigint;
 }
 
 /**
  * Update the metadata of an existing DataLayer store.
  *
  * Uses the owner synthetic key stored in the registry for signing.
+ * If feeMojos > 0, picks a separate XCH coin and attaches it via wasm.addFee,
+ * linked to the singleton spend via assertCoinIds.
  * The registry entry is updated with the returned `newStore`.
  */
 export async function updateMetadata(
@@ -251,20 +339,57 @@ export async function updateMetadata(
     null  // writerPublicKey
   ) as { coinSpends: unknown[]; newStore: unknown };
 
-  const coinSpends = result.coinSpends as Array<{
-    coin: { parentCoinInfo: Uint8Array; puzzleHash: Uint8Array; amount: bigint };
-    puzzleReveal: Uint8Array;
-    solution: Uint8Array;
-  }>;
+  const updateCoinSpends = result.coinSpends as WasmCoinSpend[];
   const newStore = result.newStore as DataStoreWasm;
 
-  const wcCoinSpends = coinSpends.map(coinSpendToWallet);
+  // Attach fee if requested
+  const feeMojos = params.feeMojos ?? 0n;
+  let allCoinSpends: WasmCoinSpend[] = updateCoinSpends;
+  let feeSel: PickedCoin | null = null;
+
+  if (feeMojos > 0n) {
+    feeSel = await pickXchCoin(feeMojos);
+    if (!feeSel) {
+      throw new Error(
+        `No spendable XCH coin found to pay the ${feeMojos} mojo fee. ` +
+          "Please fund the wallet and try again."
+      );
+    }
+
+    // The singleton coin being spent in this update
+    const assertId = hex0xToBytes(entry.currentCoinIdHex);
+
+    const feeCoinSpends = wasm.addFee(
+      hex0xToBytes(feeSel.syntheticPkHex),
+      [feeSel.coin] as unknown as object,
+      [assertId] as unknown as object,
+      feeMojos
+    ) as WasmCoinSpend[];
+
+    allCoinSpends = [...updateCoinSpends, ...feeCoinSpends];
+  }
+
+  const wcCoinSpends = allCoinSpends.map(coinSpendToWallet);
   const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   onStatus?.("Pushing spend bundle…");
-  const spendBundle = toSpendBundleJson(coinSpends, aggSig);
-  await pushTx(spendBundle);
+  const spendBundle = toSpendBundleJson(allCoinSpends, aggSig);
+
+  try {
+    await pushTx(spendBundle);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (feeSel) markCoinSpent(feeSel.coinIdHex, Date.now());
+    if (msg.toUpperCase().includes("DOUBLE_SPEND")) {
+      throw new Error(
+        "Fee coin was already spent / still in the mempool. Try again to select a different coin."
+      );
+    }
+    throw err;
+  }
+
+  if (feeSel) markCoinSpent(feeSel.coinIdHex, Date.now());
 
   const currentCoinIdHex = await coinId(newStore.coin);
   const now = Date.now();
@@ -298,11 +423,13 @@ export async function updateMetadata(
 /**
  * Melt (permanently delete) a DataLayer store.
  *
- * The singleton is spent with `meltStore`; on success the registry
- * entry is marked "deleted".
+ * If feeMojos > 0, picks a separate XCH coin and attaches it via wasm.addFee,
+ * linked to the singleton melt via assertCoinIds.
+ * On success the registry entry is marked "deleted".
  */
 export async function del(
   launcherId: string,
+  feeMojos: bigint,
   onStatus?: (s: string) => void
 ): Promise<void> {
   const entry = getStore(launcherId);
@@ -317,22 +444,58 @@ export async function del(
   const ownerPublicKey = hex0xToBytes(entry.ownerSyntheticPkHex);
 
   const wasm = await getWasm();
-  const coinSpends = wasm.meltStore(
+  const meltCoinSpends = wasm.meltStore(
     store as unknown as object,
     ownerPublicKey
-  ) as Array<{
-    coin: { parentCoinInfo: Uint8Array; puzzleHash: Uint8Array; amount: bigint };
-    puzzleReveal: Uint8Array;
-    solution: Uint8Array;
-  }>;
+  ) as WasmCoinSpend[];
 
-  const wcCoinSpends = coinSpends.map(coinSpendToWallet);
+  // Attach fee if requested
+  let allCoinSpends: WasmCoinSpend[] = meltCoinSpends;
+  let feeSel: PickedCoin | null = null;
+
+  if (feeMojos > 0n) {
+    feeSel = await pickXchCoin(feeMojos);
+    if (!feeSel) {
+      throw new Error(
+        `No spendable XCH coin found to pay the ${feeMojos} mojo fee. ` +
+          "Please fund the wallet and try again."
+      );
+    }
+
+    // Assert concurrent spend of the singleton being melted
+    const assertId = hex0xToBytes(entry.currentCoinIdHex);
+
+    const feeCoinSpends = wasm.addFee(
+      hex0xToBytes(feeSel.syntheticPkHex),
+      [feeSel.coin] as unknown as object,
+      [assertId] as unknown as object,
+      feeMojos
+    ) as WasmCoinSpend[];
+
+    allCoinSpends = [...meltCoinSpends, ...feeCoinSpends];
+  }
+
+  const wcCoinSpends = allCoinSpends.map(coinSpendToWallet);
   const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   onStatus?.("Pushing melt spend…");
-  const spendBundle = toSpendBundleJson(coinSpends, aggSig);
-  await pushTx(spendBundle);
+  const spendBundle = toSpendBundleJson(allCoinSpends, aggSig);
+
+  try {
+    await pushTx(spendBundle);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (feeSel) markCoinSpent(feeSel.coinIdHex, Date.now());
+    if (msg.toUpperCase().includes("DOUBLE_SPEND")) {
+      throw new Error(
+        "Fee coin was already spent / still in the mempool. Try again to select a different coin."
+      );
+    }
+    throw err;
+  }
+
+  if (feeSel) markCoinSpent(feeSel.coinIdHex, Date.now());
 
   // Wait until the store coin we just melted is recorded as spent on-chain.
   onStatus?.("Pushed; waiting for on-chain confirmation…");
