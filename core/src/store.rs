@@ -42,6 +42,10 @@ pub fn mint_store(
     delegated_puzzles: Vec<DelegatedPuzzle>,
     fee: u64,
 ) -> Result<SuccessResponse, WalletError> {
+    if selected_coins.is_empty() {
+        return Err(WalletError::Parse("selected_coins is empty".to_string()));
+    }
+
     let minter_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(minter_synthetic_key).into();
     let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
@@ -284,6 +288,10 @@ pub fn oracle_spend(
     datastore: DataStore,
     fee: u64,
 ) -> Result<SuccessResponse, WalletError> {
+    if selected_coins.is_empty() {
+        return Err(WalletError::Parse("selected_coins is empty".to_string()));
+    }
+
     let Some(DelegatedPuzzle::Oracle(oracle_ph, oracle_fee)) = datastore
         .info
         .delegated_puzzles
