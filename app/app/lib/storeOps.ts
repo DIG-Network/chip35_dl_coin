@@ -172,6 +172,8 @@ export interface MintParams {
   rootHashHex: string;
   /** Fee in mojos (bigint). */
   feeMojos: bigint;
+  /** Optional program hash (32 bytes, hex with or without 0x). */
+  programHashHex?: string;
 }
 
 export interface MintResult {
@@ -234,7 +236,7 @@ export async function mint(
     params.label ?? null,
     params.description ?? null,
     undefined, // bytes
-    undefined, // sizeProof
+    params.programHashHex ? hex0xToBytes(params.programHashHex) : undefined, // programHash
     ownerPuzzleHash,
     [] as unknown as object, // delegatedPuzzles — empty for basic mint
     params.feeMojos
@@ -310,6 +312,8 @@ export interface UpdateMetadataParams {
   newBytes?: bigint;
   /** Optional fee in mojos to attach to the spend bundle via addFee. */
   feeMojos?: bigint;
+  /** Optional new program hash (32 bytes, hex with or without 0x). */
+  newProgramHashHex?: string;
 }
 
 /**
@@ -341,7 +345,7 @@ export async function updateMetadata(
     params.newLabel ?? null,
     params.newDescription ?? null,
     params.newBytes ?? null,
-    null, // newSizeProof
+    params.newProgramHashHex ? hex0xToBytes(params.newProgramHashHex) : null, // newProgramHash
     ownerPublicKey,
     null, // adminPublicKey
     null  // writerPublicKey

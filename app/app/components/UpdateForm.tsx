@@ -36,6 +36,7 @@ export default function UpdateForm({
   const [newRootHash, setNewRootHash] = useState(initHash);
   const [newLabel, setNewLabel] = useState(currentLabel);
   const [newDescription, setNewDescription] = useState(currentDescription);
+  const [newProgramHash, setNewProgramHash] = useState("");
   const [fee, setFee] = useState("1000000");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
@@ -48,6 +49,15 @@ export default function UpdateForm({
     if (!/^[0-9a-fA-F]{64}$/.test(cleanHash)) {
       toast.error("Root hash must be 64 hex characters.");
       return;
+    }
+    // Validate new program hash (optional)
+    let cleanNewProgramHash: string | undefined;
+    if (newProgramHash.trim()) {
+      cleanNewProgramHash = newProgramHash.trim().replace(/^0x/i, "");
+      if (!/^[0-9a-fA-F]{64}$/.test(cleanNewProgramHash)) {
+        toast.error("New program hash must be 64 hex characters (32 bytes) if provided.");
+        return;
+      }
     }
     let feeMojos: bigint;
     try {
@@ -69,6 +79,7 @@ export default function UpdateForm({
           newLabel: newLabel.trim() || undefined,
           newDescription: newDescription.trim() || undefined,
           feeMojos,
+          newProgramHashHex: cleanNewProgramHash,
         },
         (s) => {
           setPhase(s);
@@ -130,6 +141,19 @@ export default function UpdateForm({
             Random
           </button>
         </div>
+      </label>
+
+      <label style={styles.label}>
+        New Program Hash <span style={styles.optional}>(32-byte hex, optional)</span>
+        <input
+          style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.78rem" }}
+          type="text"
+          value={newProgramHash}
+          onChange={(e) => setNewProgramHash(e.target.value)}
+          placeholder={"0".repeat(64)}
+          spellCheck={false}
+          disabled={submitting}
+        />
       </label>
 
       <label style={styles.label}>
