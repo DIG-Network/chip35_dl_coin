@@ -1,0 +1,35 @@
+[package]
+name = "chip35-dl-coin-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "WebAssembly bindings for the isolated CHIP-0035 DataLayer store coin driver."
+repository = "https://github.com/DIG-Network/chip35_dl_coin"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console-panic-hook"]
+console-panic-hook = ["dep:console_error_panic_hook"]
+
+[dependencies]
+chip35-dl-coin = { path = "../core" }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = { version = "0.1", optional = true }
+hex = "0.4"
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
