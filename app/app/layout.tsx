@@ -4,7 +4,7 @@ import WalletProvider from "./components/WalletProvider";
 import ToastProvider from "./components/ToastProvider";
 
 export const metadata: Metadata = {
-  title: "CHIP-0035 DataLayer Store Demo",
+  title: "CHIP-0035 DataLayer Tech Demo",
   description:
     "List, mint, update, and delete CHIP-0035 DataLayer stores on Chia via Sage Wallet and WalletConnect.",
 };
