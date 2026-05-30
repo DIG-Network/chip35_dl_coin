@@ -26,7 +26,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [rootHash, setRootHash] = useState(ZERO_HASH);
-  const [fee, setFee] = useState("0");
+  const [fee, setFee] = useState("1000000");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
 
@@ -77,7 +77,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
       setLabel("");
       setDescription("");
       setRootHash(ZERO_HASH);
-      setFee("0");
+      setFee("1000000");
       // Surface the pending entry immediately, and again after confirm.
       onMinted();
     } catch (e: unknown) {
