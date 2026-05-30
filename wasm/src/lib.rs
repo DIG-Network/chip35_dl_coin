@@ -37,12 +37,12 @@ pub fn mint_store(
     label: Option<String>,
     description: Option<String>,
     bytes: Option<u64>,
-    size_proof: Option<Vec<u8>>,
+    program_hash: Option<Vec<u8>>,
     owner_puzzle_hash: &[u8],
     delegated_puzzles: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
-    let size_proof = match size_proof {
+    let program_hash = match program_hash {
         Some(sp) => Some(bytes32(&sp)?.to_string()),
         None => None,
     };
@@ -53,7 +53,7 @@ pub fn mint_store(
         label,
         description,
         bytes,
-        size_proof,
+        program_hash,
         bytes32(owner_puzzle_hash)?,
         delegated_puzzles_from_js(delegated_puzzles)?,
         fee,
@@ -96,7 +96,7 @@ pub fn update_store_metadata(
     new_label: Option<String>,
     new_description: Option<String>,
     new_bytes: Option<u64>,
-    new_size_proof: Option<Vec<u8>>,
+    new_program_hash: Option<Vec<u8>>,
     owner_public_key: Option<Vec<u8>>,
     admin_public_key: Option<Vec<u8>>,
     writer_public_key: Option<Vec<u8>>,
@@ -112,7 +112,7 @@ pub fn update_store_metadata(
             ))
         }
     };
-    let new_size_proof = match new_size_proof {
+    let new_program_hash = match new_program_hash {
         Some(sp) => Some(bytes32(&sp)?.to_string()),
         None => None,
     };
@@ -122,7 +122,7 @@ pub fn update_store_metadata(
         new_label,
         new_description,
         new_bytes,
-        new_size_proof,
+        new_program_hash,
         inner,
     )
     .map_err(|e| JsValue::from_str(&e.to_string()))?;

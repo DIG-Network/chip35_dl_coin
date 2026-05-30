@@ -37,7 +37,7 @@ pub fn mint_store(
     label: Option<String>,
     description: Option<String>,
     bytes: Option<u64>,
-    size_proof: Option<String>,
+    program_hash: Option<String>,
     owner_puzzle_hash: Bytes32,
     delegated_puzzles: Vec<DelegatedPuzzle>,
     fee: u64,
@@ -73,7 +73,7 @@ pub fn mint_store(
             label,
             description,
             bytes,
-            size_proof,
+            size_proof: program_hash,
         },
         owner_puzzle_hash.into(),
         delegated_puzzles,
@@ -225,7 +225,7 @@ pub fn update_store_metadata(
     new_label: Option<String>,
     new_description: Option<String>,
     new_bytes: Option<u64>,
-    new_size_proof: Option<String>,
+    new_program_hash: Option<String>,
     inner_spend_info: DataStoreInnerSpend,
 ) -> Result<SuccessResponse, WalletError> {
     let ctx = &mut SpendContext::new();
@@ -235,7 +235,7 @@ pub fn update_store_metadata(
         label: new_label,
         description: new_description,
         bytes: new_bytes,
-        size_proof: new_size_proof,
+        size_proof: new_program_hash,
     };
     let mut new_metadata_condition = Conditions::new().with(
         DataStore::<DataStoreMetadata>::new_metadata_condition(ctx, new_metadata)?,
