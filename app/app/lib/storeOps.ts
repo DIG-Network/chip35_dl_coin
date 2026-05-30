@@ -42,6 +42,21 @@ import {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Validate that `sig` is a 96-byte aggregated BLS signature (192 hex chars).
+ * Throws a descriptive error if the shape is wrong, returns the original sig
+ * string if it is valid (with or without leading `0x` — callers normalise it).
+ */
+function assertAggSigHex(sig: string): string {
+  const h = sig.startsWith("0x") ? sig.slice(2) : sig;
+  if (!/^[0-9a-fA-F]{192}$/.test(h)) {
+    throw new Error(
+      `Wallet returned an invalid aggregated signature (expected 96 bytes / 192 hex chars, got ${h.length} hex chars)`
+    );
+  }
+  return sig;
+}
+
 /** Pick an XCH coin from Sage that covers `minMojos`. Returns null if none found. */
 async function pickXchCoin(minMojos: bigint): Promise<{
   coin: { parentCoinInfo: Uint8Array; puzzleHash: Uint8Array; amount: bigint };
@@ -149,7 +164,7 @@ export async function mint(params: MintParams): Promise<MintResult> {
   const wcCoinSpends = coinSpends.map(coinSpendToWallet);
 
   // 6. Sign via Sage
-  const aggSig = await signCoinSpends(wcCoinSpends, false, false);
+  const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   // Push to coinset
@@ -227,7 +242,7 @@ export async function updateMetadata(
   const newStore = result.newStore as DataStoreWasm;
 
   const wcCoinSpends = coinSpends.map(coinSpendToWallet);
-  const aggSig = await signCoinSpends(wcCoinSpends, false, false);
+  const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
@@ -279,7 +294,7 @@ export async function del(launcherId: string): Promise<void> {
   }>;
 
   const wcCoinSpends = coinSpends.map(coinSpendToWallet);
-  const aggSig = await signCoinSpends(wcCoinSpends, false, false);
+  const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
