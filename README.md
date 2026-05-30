@@ -1,0 +1,147 @@
+# chip35_dl_coin
+
+Isolated **CHIP-0035 Chia DataLayer store coin** driver, compiled to **WebAssembly**, with a **Next.js demo app** that lists, mints, updates, and deletes DataLayer stores using the **Sage** wallet over **WalletConnect**.
+
+The driver was extracted from [`DataLayer-Driver`](https://github.com/DIG-Network/DataLayer-Driver) and depends only on upstream `chia-*` crates — no networking, no signing, no key derivation inside the WASM. It builds the coin spends; the consumer (the demo app) handles keys, coin selection, signing (Sage), and broadcast (coinset.org). Spend-bundle output is byte-for-byte identical to `DataLayer-Driver` (both rest on `chia-sdk-driver` 0.30 chip-0035).
+
+## Layout
+
+```
+chip35_dl_coin/
+  core/      chip35-dl-coin       — Rust driver: mint/update/ownership/melt/oracle + addFee + serialization
+  wasm/      chip35-dl-coin-wasm  — wasm-bindgen bindings (the published module the app imports)
+  app/       chip35-dl-coin-app   — Next.js demo UI (Sage + WalletConnect + coinset.org)
+  puzzles/   delegation_layer.clsp / writer_filter.clsp — canonical store puzzle sources (reference only;
+             the compiled logic ships inside chia-sdk-driver — see puzzles/README.md)
+  docs/superpowers/  design spec + implementation plan
+```
+
+## What the demo does
+
+- **Connect** the Sage wallet via WalletConnect (QR pairing).
+- **Mint** a new DataLayer store (a singleton owned by your wallet key).
+- **List** the stores you've created (tracked in browser localStorage) with on-chain liveness.
+- **Update** a store's metadata (root hash / label / description).
+- **Delete** (melt) a store.
+
+Each mint / update / delete: builds coin spends in WASM → Sage signs (`chip0002_signCoinSpends`) → pushed to coinset.org `/push_tx` → the app waits for on-chain confirmation.
+
+---
+
+## Prerequisites
+
+- **Rust** (stable) + the wasm target: `rustup target add wasm32-unknown-unknown`
+- **wasm-pack**: `cargo install wasm-pack --locked`
+- **LLVM/Clang** on PATH (the `blst` BLS dependency compiles C to wasm). On Windows install LLVM and ensure `C:\Program Files\LLVM\bin` is on PATH. (`wasm-pack` usually sets this up itself; only needed if a build complains about `clang`.)
+- **Node.js 20+** and npm
+- **Sage wallet** (desktop) set to the network you'll use (this demo targets **mainnet**)
+- A free **WalletConnect / Reown project ID** from <https://cloud.reown.com>
+
+> ⚠️ **Mainnet, real funds.** Mint/update/delete spend real XCH and pay real fees. Use small amounts. There is no automated end-to-end test of the wallet/chain flow — it is verified manually.
+
+---
+
+## Quick start
+
+From the repo root (PowerShell shown; the commands are the same on bash):
+
+```powershell
+# 1. Build the WASM package → wasm/pkg  (the app depends on it via file:../wasm/pkg)
+wasm-pack build wasm --target bundler --release --no-opt
+#   (equivalent: cd wasm; npm run build:bundler; cd ..)
+
+# 2. Configure the app
+cd app
+Copy-Item .env.example .env.local
+#   then edit .env.local and set your project id:
+#   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=<your reown project id>
+npm install
+
+# 3. Run the dev server
+npm run dev
+#   open http://localhost:3000
+```
+
+`--no-opt` is required: the bundled `wasm-opt` rejects BLST's bulk-memory ops. The crate also sets `wasm-opt = false` in `wasm/Cargo.toml`, so a plain `wasm-pack build wasm --target bundler --release` works too.
+
+### `app/.env.local`
+
+```dotenv
+# Same project id you'd use for any Sage/WalletConnect dapp (https://cloud.reown.com)
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_reown_project_id
+# coinset.org RPC (reads + /push_tx). Default is fine.
+NEXT_PUBLIC_COINSET_BASE_URL=https://api.coinset.org
+```
+
+`NEXT_PUBLIC_*` values are inlined when the dev server (or build) **starts** — **restart `npm run dev` after editing `.env.local`**.
+
+### Production (static export)
+
+```powershell
+cd app
+npm run build      # → app/out  (Next.js static export)
+npm start          # serves app/out on http://localhost:3000
+```
+
+---
+
+## Using the demo
+
+1. Open <http://localhost:3000>. Make sure Sage is running and set to **mainnet**, with a small spendable XCH balance.
+2. Click **Connect Wallet**, scan the QR with Sage, approve.
+3. **Mint:** set a label/description, a 32-byte root hash (or click *random*), and a fee (default `1,000,000` mojos). Submit, approve in Sage. Watch the status: *Pushing → waiting for on-chain confirmation → Confirmed*.
+4. **Update / Delete:** pick a store from the list, set the new root hash (update) or confirm the fee (delete), approve in Sage, wait for confirmation.
+
+The store list lives in your browser's localStorage; "Refresh status" checks each store's current coin on coinset.org.
+
+---
+
+## Tests
+
+```powershell
+# Rust driver unit + parity tests
+cargo test -p chip35-dl-coin
+
+# WASM functional test (builds the nodejs target, runs mint/update/melt/oracle + native↔wasm golden parity)
+cd wasm; npm test; cd ..
+
+# App typecheck / build
+cd app; npx tsc --noEmit; npm run build; cd ..
+```
+
+---
+
+## How it works (architecture)
+
+- **`chip35-dl-coin-wasm`** exposes only the store spend builders: `mintStore`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `oracleSpend`, plus `addFee` and `spendBundleToHex` / `hexSpendBundleToCoinSpends`. It returns `CoinSpend[]` (and the updated `DataStore`) — it never signs or touches the network.
+- The app uses **`chia-wallet-sdk-wasm`** for wallet utilities the driver omits: bech32m address decode, and uncurrying a coin's puzzle reveal to recover its synthetic public key.
+- **Sage** (over WalletConnect) provides spendable coins (`chip0002_getAssetCoins`) and signs (`chip0002_signCoinSpends`, `partial:false, auto_submit:false`).
+- **coinset.org** broadcasts (`/push_tx`) and provides confirmation/liveness reads.
+- A store is owned by the **synthetic key of the coin that funded its mint** (the key Sage signs with), so its whole mint → update → melt lifecycle stays self-consistent.
+
+---
+
+## Limitations / notes
+
+- **Demo registry is local.** "List" shows stores minted/updated in *this* browser (localStorage). Importing arbitrary pre-existing stores by launcher id is out of scope.
+- **Update/delete assume this app is the sole spender** of a tracked store (its cached `DataStore` is the latest state).
+- **WASM import discipline:** the module is only loaded via `app/app/lib/wasm.ts` `getWasm()` inside `dynamic(..., { ssr: false })` components — never a top-level import. `next.config.ts` enables `asyncWebAssembly`. Don't change this pattern or the build breaks.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `WalletConnect client could not be initialised. Check NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | `.env.local` missing the project id, or the dev server wasn't restarted after adding it. Set the id and restart `npm run dev`. |
+| `Loading chunk … failed` | Stale dev-server chunks after source changed under a running `npm run dev`. Restart the dev server and hard-refresh (Ctrl+Shift+R). |
+| `/push_tx rejected: … DOUBLE_SPEND` | The selected coin was already spent / still in the mempool. The app marks it and you can retry to pick a different coin; or wait for a prior tx to confirm. |
+| `/push_tx rejected: … WRONG_PUZZLE_HASH` | A store minted by an **older build** is owned by a key the app didn't store. Clear the old list (`localStorage.clear()` in the console) and **mint a fresh store** with the current build. |
+| `No spendable XCH coin found covering N mojos` | The wallet has no single unlocked coin ≥ fee+1 (mint) or ≥ fee (update/delete). Fund the wallet or lower the fee. |
+| `next build` fails with `EPERM … .next\trace` | A `npm run dev` is already running and locking `.next`. Stop it before `npm run build`. |
+
+---
+
+## License
+
+MIT. See `LICENSE` (driver code extracted from DataLayer-Driver, also MIT).
