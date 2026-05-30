@@ -1,0 +1,36 @@
+{
+  "name": "chip35-dl-coin-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "npx serve@latest out -l 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@walletconnect/sign-client": "^2.19.0",
+    "@walletconnect/types": "^2.19.0",
+    "chia-wallet-sdk-wasm": "^0.24.0",
+    "chip35-dl-coin-wasm": "file:../wasm/pkg",
+    "next": "15.2.1",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hot-toast": "^2.5.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "browserslist": [
+    "Chrome >= 90",
+    "Firefox >= 90",
+    "Edge >= 90",
+    "Safari >= 15"
+  ]
+}
