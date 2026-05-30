@@ -37,6 +37,7 @@ export default function UpdateForm({
   const [newLabel, setNewLabel] = useState(currentLabel);
   const [newDescription, setNewDescription] = useState(currentDescription);
   const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<string | null>(null);
 
   const handleRandomHash = () => setNewRootHash(randomRootHash());
 
@@ -48,21 +49,30 @@ export default function UpdateForm({
       return;
     }
     setSubmitting(true);
+    setPhase("Updating store metadata…");
     const toastId = toast.loading("Updating store metadata…");
     try {
       const { updateMetadata } = await import("../lib/storeOps");
-      await updateMetadata(launcherId, {
-        newRootHashHex: cleanHash,
-        newLabel: newLabel.trim() || undefined,
-        newDescription: newDescription.trim() || undefined,
-      });
-      toast.success("Store updated!", { id: toastId });
+      await updateMetadata(
+        launcherId,
+        {
+          newRootHashHex: cleanHash,
+          newLabel: newLabel.trim() || undefined,
+          newDescription: newDescription.trim() || undefined,
+        },
+        (s) => {
+          setPhase(s);
+          toast.loading(s, { id: toastId });
+        }
+      );
+      toast.success("Store updated & confirmed!", { id: toastId });
       onUpdated();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error("Update failed: " + msg, { id: toastId, duration: 6000 });
     } finally {
       setSubmitting(false);
+      setPhase(null);
     }
   };
 
@@ -122,7 +132,7 @@ export default function UpdateForm({
           }}
           disabled={submitting}
         >
-          {submitting ? "Updating…" : "Save Changes"}
+          {submitting ? phase ?? "Updating…" : "Save Changes"}
         </button>
         <button
           type="button"
@@ -133,6 +143,12 @@ export default function UpdateForm({
           Cancel
         </button>
       </div>
+
+      {submitting && phase && (
+        <p style={styles.phase} aria-live="polite">
+          {phase}
+        </p>
+      )}
     </form>
   );
 }
@@ -186,5 +202,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.85rem",
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+  phase: {
+    margin: 0,
+    fontSize: "0.82rem",
+    color: "#2563eb",
+    fontStyle: "italic",
   },
 };

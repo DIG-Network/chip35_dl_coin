@@ -116,6 +116,83 @@ export async function getCoinRecordByName(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Confirmation polling
+// ---------------------------------------------------------------------------
+
+/**
+ * Await-able sleep. No `Date` at module scope; a fresh Promise + setTimeout
+ * per call. Works in browser and Node (setTimeout is global in both).
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface WaitOptions {
+  /** Overall budget before throwing. Default 180_000 ms (3 min). */
+  timeoutMs?: number;
+  /** Delay between polls. Default 5_000 ms. */
+  intervalMs?: number;
+}
+
+/**
+ * Poll coinset until a newly-created coin is confirmed on-chain:
+ * a coin record exists AND `confirmed_block_index > 0`.
+ *
+ * Resolves to the confirming CoinRecord. Throws a clear Error on timeout.
+ * Used by mint() and updateMetadata() to confirm the new singleton coin.
+ */
+export async function waitForCoinConfirmation(
+  coinIdHex: string,
+  { timeoutMs = 180000, intervalMs = 5000 }: WaitOptions = {}
+): Promise<CoinRecord> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rec = await getCoinRecordByName(coinIdHex);
+    if (rec && rec.confirmedHeight > 0) {
+      return rec;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out after ${Math.round(
+          timeoutMs / 1000
+        )}s waiting for coin ${withPrefix(
+          coinIdHex
+        )} to be confirmed on-chain.`
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * Poll coinset until the coin with `coinIdHex` is spent:
+ * a coin record exists AND `spent_block_index > 0`.
+ *
+ * Resolves to the spent CoinRecord. Throws a clear Error on timeout.
+ * Used by del() to confirm the singleton was melted on-chain.
+ */
+export async function waitForCoinSpent(
+  coinIdHex: string,
+  { timeoutMs = 180000, intervalMs = 5000 }: WaitOptions = {}
+): Promise<CoinRecord> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rec = await getCoinRecordByName(coinIdHex);
+    if (rec && rec.spentHeight > 0) {
+      return rec;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out after ${Math.round(
+          timeoutMs / 1000
+        )}s waiting for coin ${withPrefix(coinIdHex)} to be spent on-chain.`
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
 /** Current blockchain state including peak height. */
 export interface BlockchainState {
   peakHeight: number | null;

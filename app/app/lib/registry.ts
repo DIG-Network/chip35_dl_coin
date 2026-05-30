@@ -39,10 +39,31 @@ export interface RegistryEntry {
    * Updated after each successful spend. Used for liveness checks.
    */
   currentCoinIdHex: string;
-  /** "live" until meltStore succeeds, then "deleted". */
-  status: "live" | "deleted";
+  /**
+   * Lifecycle status of the store coin:
+   *   "pending"   — spend pushed; awaiting on-chain confirmation.
+   *   "confirmed" — the current coin is confirmed on-chain.
+   *   "deleted"   — meltStore confirmed (coin spent, singleton retired).
+   * Legacy entries may carry "live" — treat that as "confirmed" for display
+   * (see `displayStatus`).
+   */
+  status: RegistryStatus;
   /** Operation history. */
   history: RegistryHistoryEntry[];
+}
+
+/** Current status values. `"live"` is a legacy alias kept for old entries. */
+export type RegistryStatus = "pending" | "confirmed" | "deleted" | "live";
+
+/**
+ * Normalise a stored status for display. Legacy `"live"` entries (written
+ * before confirmation tracking existed) are surfaced as `"confirmed"`.
+ */
+export function displayStatus(
+  status: RegistryStatus
+): "pending" | "confirmed" | "deleted" {
+  if (status === "live") return "confirmed";
+  return status;
 }
 
 // ---------------------------------------------------------------------------
