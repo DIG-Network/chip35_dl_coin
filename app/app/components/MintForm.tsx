@@ -26,11 +26,17 @@ export default function MintForm({ onMinted }: MintFormProps) {
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [rootHash, setRootHash] = useState(ZERO_HASH);
+  const [programHash, setProgramHash] = useState("");
   const [fee, setFee] = useState("1000000");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
 
   const handleRandomHash = () => setRootHash(randomRootHash());
+  const handleRandomProgramHash = () => {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    setProgramHash(Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join(""));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,11 +44,20 @@ export default function MintForm({ onMinted }: MintFormProps) {
       toast.error("Connect your wallet first.");
       return;
     }
-    // Validate hex
+    // Validate root hash
     const cleanHash = rootHash.replace(/^0x/i, "");
     if (!/^[0-9a-fA-F]{64}$/.test(cleanHash)) {
       toast.error("Root hash must be 64 hex characters (32 bytes).");
       return;
+    }
+    // Validate program hash (optional)
+    let cleanProgramHash: string | undefined;
+    if (programHash.trim()) {
+      cleanProgramHash = programHash.trim().replace(/^0x/i, "");
+      if (!/^[0-9a-fA-F]{64}$/.test(cleanProgramHash)) {
+        toast.error("Program hash must be 64 hex characters (32 bytes) if provided.");
+        return;
+      }
     }
     let feeMojos: bigint;
     try {
@@ -64,6 +79,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
           description: description.trim() || undefined,
           rootHashHex: cleanHash,
           feeMojos,
+          programHashHex: cleanProgramHash,
         },
         (s) => {
           setPhase(s);
@@ -77,6 +93,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
       setLabel("");
       setDescription("");
       setRootHash(ZERO_HASH);
+      setProgramHash("");
       setFee("1000000");
       // Surface the pending entry immediately, and again after confirm.
       onMinted();
@@ -135,6 +152,30 @@ export default function MintForm({ onMinted }: MintFormProps) {
               type="button"
               style={styles.btnSecondary}
               onClick={handleRandomHash}
+              disabled={submitting}
+              title="Fill with random 32 bytes"
+            >
+              Random
+            </button>
+          </div>
+        </label>
+
+        <label style={styles.label}>
+          Program Hash <span style={styles.optional}>(32-byte hex, optional)</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.8rem", flex: 1 }}
+              type="text"
+              value={programHash}
+              onChange={(e) => setProgramHash(e.target.value)}
+              placeholder={"0".repeat(64)}
+              disabled={submitting}
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              style={styles.btnSecondary}
+              onClick={handleRandomProgramHash}
               disabled={submitting}
               title="Fill with random 32 bytes"
             >
