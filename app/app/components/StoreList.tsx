@@ -151,6 +151,10 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
           const shortCoinId = entry.currentCoinIdHex.slice(0, 10) + "…" + entry.currentCoinIdHex.slice(-6);
           const rootHash = entry.dataStoreJson.metadata.rootHash;
           const shortRootHash = rootHash.slice(0, 10) + "…" + rootHash.slice(-6);
+          const programHash = entry.dataStoreJson.metadata.programHash;
+          const shortProgramHash = programHash
+            ? programHash.slice(0, 10) + "…" + programHash.slice(-6)
+            : null;
 
           return (
             <div
@@ -248,6 +252,14 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                   fullValue={rootHash}
                   onCopy={() => copyToClipboard(rootHash)}
                 />
+                {programHash && shortProgramHash && (
+                  <FieldRow
+                    label="Program Hash"
+                    value={shortProgramHash}
+                    fullValue={programHash}
+                    onCopy={() => copyToClipboard(programHash)}
+                  />
+                )}
               </div>
 
               {/* Liveness row */}
