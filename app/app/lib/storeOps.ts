@@ -17,7 +17,7 @@ import {
   signCoinSpends,
 } from "./walletConnect";
 import {
-  puzzleHashBytesFromAddress,
+  standardPuzzleHashHexFromSyntheticPkHex,
   syntheticPkHexFromCoinPuzzle,
 } from "./chiaAddress";
 import {
@@ -195,14 +195,11 @@ export async function mint(
   params: MintParams,
   onStatus?: (s: string) => void
 ): Promise<MintResult> {
-  // 1. Wallet address + puzzle hash
+  // 1. Require a connected wallet.
   const address = getAddress();
   if (!address) throw new Error("Wallet not connected.");
 
-  const ownerPuzzleHash = await puzzleHashBytesFromAddress(address);
-  if (!ownerPuzzleHash) throw new Error(`Invalid wallet address: ${address}`);
-
-  // 2 + 3. Pick a coin; need at least fee + 1 mojo for the singleton
+  // 2 + 3. Pick a coin; need at least fee + 1 mojo for the singleton.
   const minMojos = params.feeMojos + 1n;
   const selected = await pickXchCoin(minMojos);
   if (!selected) {
@@ -211,6 +208,17 @@ export async function mint(
         "Please fund the wallet and try again."
     );
   }
+
+  // The store owner MUST be the SAME key that controls the funding coin —
+  // the key Sage will sign future update/melt owner-spends with. Using the
+  // wallet's "current address" key (frequently a different derivation index
+  // than the funding coin) makes the on-chain singleton commit to one owner
+  // puzzle hash while melt/update reconstruct another → WRONG_PUZZLE_HASH on
+  // push. Deriving the owner from the funding coin's synthetic key keeps the
+  // store self-consistent across its whole lifecycle.
+  const ownerPuzzleHash = hex0xToBytes(
+    await standardPuzzleHashHexFromSyntheticPkHex(selected.syntheticPkHex)
+  );
 
   // 4. Call wasm mintStore
   const wasm = await getWasm();
