@@ -54,4 +54,24 @@ const mint2 = wasm.mintStore(
 const hex2 = wasm.spendBundleToHex({ coinSpends: mint2.coinSpends, aggregatedSignature: identitySig });
 assert.equal(hex, hex2, "mint deterministic");
 
+// NATIVE<->WASM GOLDEN PARITY
+assert.equal(hex, f.mintHex, "wasm mint bundle hex == native golden (byte-for-byte parity)");
+
+// UPDATE STORE OWNERSHIP
+const own = wasm.updateStoreOwnership(mint.newStore, ownerPh, [adminDp], synthKey, undefined);
+assert.ok(own.coinSpends.length > 0, "updateStoreOwnership");
+
+// ORACLE SPEND — use a larger coin so amount >= oracleFee + fee + 1
+const oracleCoin = {
+  parentCoinInfo: hexToBytes(f.parentCoinInfoHex),
+  puzzleHash: ownerPh,
+  amount: 1000n,
+};
+const oracleDp = { oraclePaymentPuzzleHash: ownerPh, oracleFee: 2n };
+const mintO = wasm.mintStore(
+  synthKey, [oracleCoin], rootHash, "o", "o", undefined, undefined, ownerPh, [oracleDp], 0n
+);
+const oracle = wasm.oracleSpend(synthKey, [oracleCoin], mintO.newStore, 0n);
+assert.ok(oracle.coinSpends.length > 0, "oracleSpend");
+
 console.log("All chip35-dl-coin WASM builder checks passed.");

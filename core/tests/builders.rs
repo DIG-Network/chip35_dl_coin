@@ -117,3 +117,14 @@ fn oracle_spend_without_oracle_puzzle_is_permission_denied() {
     let res = oracle_spend(synth, vec![lead_coin(owner_ph)], mint.new_datastore, 0);
     assert!(matches!(res, Err(Error::Permission)), "no oracle puzzle => permission denied");
 }
+
+#[test]
+fn mint_with_no_coins_errors() {
+    let synth = synthetic();
+    let owner_ph: chip35_dl_coin::Bytes32 = StandardArgs::curry_tree_hash(synth).into();
+    let res = mint_store(
+        synth, vec![], chip35_dl_coin::Bytes32::new([3u8; 32]),
+        None, None, None, None, owner_ph, vec![], 0,
+    );
+    assert!(matches!(res, Err(Error::Parse(_))), "empty coins => parse error");
+}
