@@ -1,0 +1,29 @@
+; writer_filter.clsp
+; for DataLayer.storage by yakuhito
+
+;; Allows the data store owner to add writers that:
+;;  - CAN update the store root hash, label, description, and any other metadata
+;;    (i.e., call the metadata updatter via the -24 condition)
+;;  - CANNOT update the authorized puzzles list
+;;    (i.e., cannot use the -13 condition)
+
+
+(mod (
+    INNER_PUZZLE
+    inner_solution
+  )
+
+  (defun morph_conditions (conditions)
+    (if conditions
+      (if (= (f (f conditions)) -13) ; don't allow updating merkle root
+        (x)
+        ; else
+        (c (f conditions) (morph_conditions (r conditions)))
+      )
+      ; else - all conditions checked
+      ()
+    )
+  )
+
+  (morph_conditions (a INNER_PUZZLE inner_solution))
+)
