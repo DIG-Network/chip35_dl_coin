@@ -20,7 +20,11 @@ import {
   puzzleHashBytesFromAddress,
   syntheticPkHexFromCoinPuzzle,
 } from "./chiaAddress";
-import { pushTx } from "./coinset";
+import {
+  pushTx,
+  waitForCoinConfirmation,
+  waitForCoinSpent,
+} from "./coinset";
 import {
   coinSpendToWallet,
   toSpendBundleJson,
@@ -115,7 +119,10 @@ export interface MintResult {
  *   6. Sign via Sage → push to coinset.
  *   7. Compute the new store's current coin id and persist registry entry.
  */
-export async function mint(params: MintParams): Promise<MintResult> {
+export async function mint(
+  params: MintParams,
+  onStatus?: (s: string) => void
+): Promise<MintResult> {
   // 1. Wallet address + puzzle hash
   const address = getAddress();
   if (!address) throw new Error("Wallet not connected.");
@@ -168,6 +175,7 @@ export async function mint(params: MintParams): Promise<MintResult> {
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
   // Push to coinset
+  onStatus?.("Pushing spend bundle…");
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
   await pushTx(spendBundle);
 
@@ -175,18 +183,26 @@ export async function mint(params: MintParams): Promise<MintResult> {
   const currentCoinIdHex = await coinId(newStore.coin);
   const launcherIdHex = "0x" + bytesToHex(newStore.launcherId);
 
-  // Persist to registry
-  const now = Date.now();
-  const entry: RegistryEntry = {
+  // Persist a pending registry entry immediately so it shows up in the UI
+  // while we wait for the chain to confirm it.
+  const dataStoreJson = dataStoreToRegistryJson(newStore);
+  const baseEntry: RegistryEntry = {
     launcherId: launcherIdHex,
     label: params.label ?? "",
-    dataStoreJson: dataStoreToRegistryJson(newStore),
+    dataStoreJson,
     ownerSyntheticPkHex: selected.syntheticPkHex,
     currentCoinIdHex,
-    status: "live",
-    history: [{ ts: now, op: "mint" }],
+    status: "pending",
+    history: [{ ts: Date.now(), op: "mint" }],
   };
-  upsertStore(entry);
+  upsertStore(baseEntry);
+
+  // Wait for the new singleton coin to be confirmed on-chain.
+  onStatus?.("Pushed; waiting for on-chain confirmation…");
+  await waitForCoinConfirmation(currentCoinIdHex);
+
+  upsertStore({ ...baseEntry, status: "confirmed" });
+  onStatus?.("Confirmed");
 
   return { launcherIdHex, currentCoinIdHex };
 }
@@ -210,7 +226,8 @@ export interface UpdateMetadataParams {
  */
 export async function updateMetadata(
   launcherId: string,
-  params: UpdateMetadataParams
+  params: UpdateMetadataParams,
+  onStatus?: (s: string) => void
 ): Promise<void> {
   const entry = getStore(launcherId);
   if (!entry) throw new Error(`Store not found in registry: ${launcherId}`);
@@ -245,23 +262,33 @@ export async function updateMetadata(
   const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
+  onStatus?.("Pushing spend bundle…");
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
   await pushTx(spendBundle);
 
   const currentCoinIdHex = await coinId(newStore.coin);
   const now = Date.now();
 
+  // Persist the new store state as pending, then wait for the NEW store
+  // coin to be confirmed on-chain before marking it confirmed.
   const updatedEntry: RegistryEntry = {
     ...entry,
     label: params.newLabel ?? entry.label,
     dataStoreJson: dataStoreToRegistryJson(newStore),
     currentCoinIdHex,
+    status: "pending",
     history: [
       ...entry.history,
       { ts: now, op: "updateMetadata" },
     ],
   };
   upsertStore(updatedEntry);
+
+  onStatus?.("Pushed; waiting for on-chain confirmation…");
+  await waitForCoinConfirmation(currentCoinIdHex);
+
+  upsertStore({ ...updatedEntry, status: "confirmed" });
+  onStatus?.("Confirmed");
 }
 
 // ---------------------------------------------------------------------------
@@ -274,11 +301,17 @@ export async function updateMetadata(
  * The singleton is spent with `meltStore`; on success the registry
  * entry is marked "deleted".
  */
-export async function del(launcherId: string): Promise<void> {
+export async function del(
+  launcherId: string,
+  onStatus?: (s: string) => void
+): Promise<void> {
   const entry = getStore(launcherId);
   if (!entry) throw new Error(`Store not found in registry: ${launcherId}`);
   if (entry.status === "deleted")
     throw new Error(`Store ${launcherId} is already deleted.`);
+
+  // The coin we are about to spend — captured BEFORE the melt.
+  const spentCoinIdHex = entry.currentCoinIdHex;
 
   const store = dataStoreFromRegistryJson(entry.dataStoreJson);
   const ownerPublicKey = hex0xToBytes(entry.ownerSyntheticPkHex);
@@ -297,8 +330,14 @@ export async function del(launcherId: string): Promise<void> {
   const aggSig = assertAggSigHex(await signCoinSpends(wcCoinSpends, false, false) ?? "");
   if (!aggSig) throw new Error("Sage rejected signing or returned no signature.");
 
+  onStatus?.("Pushing melt spend…");
   const spendBundle = toSpendBundleJson(coinSpends, aggSig);
   await pushTx(spendBundle);
 
+  // Wait until the store coin we just melted is recorded as spent on-chain.
+  onStatus?.("Pushed; waiting for on-chain confirmation…");
+  await waitForCoinSpent(spentCoinIdHex);
+
   markDeleted(launcherId, Date.now());
+  onStatus?.("Confirmed");
 }

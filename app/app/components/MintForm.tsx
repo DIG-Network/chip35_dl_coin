@@ -28,6 +28,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
   const [rootHash, setRootHash] = useState(ZERO_HASH);
   const [fee, setFee] = useState("0");
   const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<string | null>(null);
 
   const handleRandomHash = () => setRootHash(randomRootHash());
 
@@ -53,29 +54,40 @@ export default function MintForm({ onMinted }: MintFormProps) {
     }
 
     setSubmitting(true);
+    setPhase("Minting store…");
     const toastId = toast.loading("Minting store…");
     try {
       const { mint } = await import("../lib/storeOps");
-      const result = await mint({
-        label: label.trim() || undefined,
-        description: description.trim() || undefined,
-        rootHashHex: cleanHash,
-        feeMojos,
-      });
+      const result = await mint(
+        {
+          label: label.trim() || undefined,
+          description: description.trim() || undefined,
+          rootHashHex: cleanHash,
+          feeMojos,
+        },
+        (s) => {
+          setPhase(s);
+          toast.loading(s, { id: toastId });
+        }
+      );
       toast.success(
-        `Store minted! Launcher ID: ${result.launcherIdHex.slice(0, 14)}…`,
+        `Store minted & confirmed! Launcher ID: ${result.launcherIdHex.slice(0, 14)}…`,
         { id: toastId, duration: 5000 }
       );
       setLabel("");
       setDescription("");
       setRootHash(ZERO_HASH);
       setFee("0");
+      // Surface the pending entry immediately, and again after confirm.
       onMinted();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error("Mint failed: " + msg, { id: toastId, duration: 6000 });
+      // The store may have been left pending — refresh so it shows up.
+      onMinted();
     } finally {
       setSubmitting(false);
+      setPhase(null);
     }
   };
 
@@ -153,8 +165,14 @@ export default function MintForm({ onMinted }: MintFormProps) {
           }}
           disabled={!connected || submitting}
         >
-          {submitting ? "Minting…" : "Mint Store"}
+          {submitting ? phase ?? "Minting…" : "Mint Store"}
         </button>
+
+        {submitting && phase && (
+          <p style={styles.phase} aria-live="polite">
+            {phase}
+          </p>
+        )}
 
         {!connected && (
           <p style={styles.notice}>Connect your wallet to enable minting.</p>
@@ -231,6 +249,12 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     fontSize: "0.82rem",
     color: "#f59e0b",
+    fontStyle: "italic",
+  },
+  phase: {
+    margin: 0,
+    fontSize: "0.82rem",
+    color: "#2563eb",
     fontStyle: "italic",
   },
 };

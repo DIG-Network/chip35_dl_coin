@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import UpdateForm from "./UpdateForm";
-import type { RegistryEntry } from "../lib/registry";
+import { displayStatus, type RegistryEntry } from "../lib/registry";
 
 interface StoreListProps {
   refreshSignal: number; // increment to trigger re-load
@@ -23,6 +23,7 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
   const [liveness, setLiveness] = useState<Record<string, LivenessState>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletePhase, setDeletePhase] = useState<string | null>(null);
 
   const loadStores = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -79,17 +80,22 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
   const handleDelete = async (entry: RegistryEntry) => {
     if (!window.confirm(`Melt (permanently delete) store "${entry.label || entry.launcherId.slice(0, 14) + "…"}"?\n\nThis cannot be undone.`)) return;
     setDeletingId(entry.launcherId);
+    setDeletePhase("Melting store…");
     const toastId = toast.loading("Melting store…");
     try {
       const { del } = await import("../lib/storeOps");
-      await del(entry.launcherId);
-      toast.success("Store melted.", { id: toastId });
+      await del(entry.launcherId, (s) => {
+        setDeletePhase(s);
+        toast.loading(s, { id: toastId });
+      });
+      toast.success("Store melted & confirmed.", { id: toastId });
       loadStores();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error("Melt failed: " + msg, { id: toastId, duration: 6000 });
     } finally {
       setDeletingId(null);
+      setDeletePhase(null);
     }
   };
 
@@ -121,7 +127,9 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         {stores.map((entry) => {
           const live = liveness[entry.launcherId];
-          const isDeleted = entry.status === "deleted";
+          const status = displayStatus(entry.status);
+          const isDeleted = status === "deleted";
+          const isPending = status === "pending";
           const isEditing = editingId === entry.launcherId;
           const isDeleting = deletingId === entry.launcherId;
 
@@ -145,8 +153,16 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                   <span style={styles.storeLabel}>
                     {entry.label || <em style={{ color: "#9ca3af" }}>Unlabelled</em>}
                   </span>
-                  <span style={isDeleted ? styles.badgeDeleted : styles.badgeLive}>
-                    {isDeleted ? "melted" : "live"}
+                  <span
+                    style={
+                      isDeleted
+                        ? styles.badgeDeleted
+                        : isPending
+                        ? styles.badgePending
+                        : styles.badgeLive
+                    }
+                  >
+                    {isDeleted ? "deleted" : isPending ? "pending" : "confirmed"}
                   </span>
                 </div>
                 {!isDeleted && (
@@ -163,7 +179,7 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                       onClick={() => handleDelete(entry)}
                       disabled={isDeleting}
                     >
-                      {isDeleting ? "Melting…" : "Delete"}
+                      {isDeleting ? deletePhase ?? "Melting…" : "Delete"}
                     </button>
                   </div>
                 )}
@@ -347,6 +363,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     background: "#dcfce7",
     color: "#16a34a",
+    borderRadius: 20,
+    padding: "2px 9px",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+  },
+  badgePending: {
+    fontSize: "0.72rem",
+    fontWeight: 700,
+    background: "#fef3c7",
+    color: "#d97706",
     borderRadius: 20,
     padding: "2px 9px",
     letterSpacing: "0.04em",
