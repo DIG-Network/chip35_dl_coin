@@ -74,4 +74,8 @@ const mintO = wasm.mintStore(
 const oracle = wasm.oracleSpend(synthKey, [oracleCoin], mintO.newStore, 0n);
 assert.ok(oracle.coinSpends.length > 0, "oracleSpend");
 
+// ADD FEE
+const fee = wasm.addFee(synthKey, [coin], [new Uint8Array(32).fill(5)], 1n);
+assert.ok(Array.isArray(fee) && fee.length > 0, "addFee returns coin spends");
+
 console.log("All chip35-dl-coin WASM builder checks passed.");
