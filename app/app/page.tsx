@@ -34,7 +34,7 @@ const Dashboard = dynamic(
           <header style={pageStyles.header}>
             <div style={pageStyles.headerInner}>
               <div>
-                <h1 style={pageStyles.title}>CHIP-0035 DataLayer</h1>
+                <h1 style={pageStyles.title}>CHIP-0035 DataLayer Tech Demo</h1>
                 <p style={pageStyles.subtitle}>
                   Mint, update, and delete Chia DataLayer stores via Sage Wallet
                 </p>
