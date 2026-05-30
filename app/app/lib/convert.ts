@@ -118,7 +118,7 @@ export interface DataStoreJson {
     label?: string;
     description?: string;
     bytes?: string; // decimal string
-    sizeProof?: string; // 0x-hex
+    programHash?: string; // 0x-hex
   };
   ownerPuzzleHash: string; // 0x-hex
   delegatedPuzzles: Array<{
@@ -149,7 +149,7 @@ export interface DataStoreWasm {
     label?: string;
     description?: string;
     bytes?: bigint;
-    sizeProof?: Uint8Array;
+    programHash?: Uint8Array;
   };
   ownerPuzzleHash: Uint8Array;
   delegatedPuzzles: Array<{
@@ -195,9 +195,9 @@ export function dataStoreToRegistryJson(ds: DataStoreWasm): DataStoreJson {
       label: ds.metadata.label,
       description: ds.metadata.description,
       bytes: ds.metadata.bytes !== undefined ? ds.metadata.bytes.toString() : undefined,
-      sizeProof:
-        ds.metadata.sizeProof !== undefined
-          ? bytesToHex0x(ds.metadata.sizeProof)
+      programHash:
+        ds.metadata.programHash !== undefined
+          ? bytesToHex0x(ds.metadata.programHash)
           : undefined,
     },
     ownerPuzzleHash: bytesToHex0x(ds.ownerPuzzleHash),
@@ -256,9 +256,9 @@ export function dataStoreFromRegistryJson(j: DataStoreJson): DataStoreWasm {
       description: j.metadata.description,
       bytes:
         j.metadata.bytes !== undefined ? BigInt(j.metadata.bytes) : undefined,
-      sizeProof:
-        j.metadata.sizeProof !== undefined
-          ? hex0xToBytes(j.metadata.sizeProof)
+      programHash:
+        j.metadata.programHash !== undefined
+          ? hex0xToBytes(j.metadata.programHash)
           : undefined,
     },
     ownerPuzzleHash: hex0xToBytes(j.ownerPuzzleHash),
