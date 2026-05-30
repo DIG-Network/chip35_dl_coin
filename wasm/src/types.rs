@@ -174,7 +174,7 @@ pub struct DataStoreMetadata {
     pub description: Option<String>,
     pub bytes: Option<u64>,
     #[serde(default, with = "serde_bytes_opt")]
-    pub size_proof: Option<Vec<u8>>,
+    pub program_hash: Option<Vec<u8>>,
 }
 
 impl DataStoreMetadata {
@@ -184,7 +184,7 @@ impl DataStoreMetadata {
             label: self.label.clone(),
             description: self.description.clone(),
             bytes: self.bytes,
-            size_proof: match &self.size_proof {
+            size_proof: match &self.program_hash {
                 Some(sp) => Some(bytes32(sp)?.to_string()),
                 None => None,
             },
@@ -197,10 +197,10 @@ impl DataStoreMetadata {
             label: m.label.clone(),
             description: m.description.clone(),
             bytes: m.bytes,
-            size_proof: match &m.size_proof {
+            program_hash: match &m.size_proof {
                 Some(s) => Some(
                     hex::decode(s.trim_start_matches("0x"))
-                        .map_err(|_| JsValue::from_str("invalid size_proof hex"))?,
+                        .map_err(|_| JsValue::from_str("invalid program_hash hex"))?,
                 ),
                 None => None,
             },
