@@ -11,11 +11,12 @@ interface UpdateFormProps {
   currentLabel: string;
   currentDescription: string;
   currentRootHash: string; // 0x-prefixed hex from registry
+  currentProgramHash?: string; // 0x-prefixed hex from registry (may be empty/undefined)
   onUpdated: () => void;
   onCancel: () => void;
 }
 
-function randomRootHash(): string {
+function random32Hex(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes)
@@ -28,20 +29,24 @@ export default function UpdateForm({
   currentLabel,
   currentDescription,
   currentRootHash,
+  currentProgramHash,
   onUpdated,
   onCancel,
 }: UpdateFormProps) {
-  // Strip 0x for display
+  // Strip 0x for display. Pre-fill the program hash with the store's current
+  // value so editing other fields doesn't silently drop it (blank => omitted).
   const initHash = currentRootHash.replace(/^0x/i, "");
+  const initProgramHash = (currentProgramHash ?? "").replace(/^0x/i, "");
   const [newRootHash, setNewRootHash] = useState(initHash);
   const [newLabel, setNewLabel] = useState(currentLabel);
   const [newDescription, setNewDescription] = useState(currentDescription);
-  const [newProgramHash, setNewProgramHash] = useState("");
+  const [newProgramHash, setNewProgramHash] = useState(initProgramHash);
   const [fee, setFee] = useState("1000000");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
 
-  const handleRandomHash = () => setNewRootHash(randomRootHash());
+  const handleRandomHash = () => setNewRootHash(random32Hex());
+  const handleRandomProgramHash = () => setNewProgramHash(random32Hex());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,15 +150,25 @@ export default function UpdateForm({
 
       <label style={styles.label}>
         New Program Hash <span style={styles.optional}>(32-byte hex, optional)</span>
-        <input
-          style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.78rem" }}
-          type="text"
-          value={newProgramHash}
-          onChange={(e) => setNewProgramHash(e.target.value)}
-          placeholder={"0".repeat(64)}
-          spellCheck={false}
-          disabled={submitting}
-        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.78rem", flex: 1 }}
+            type="text"
+            value={newProgramHash}
+            onChange={(e) => setNewProgramHash(e.target.value)}
+            placeholder={"(leave blank to omit)"}
+            spellCheck={false}
+            disabled={submitting}
+          />
+          <button
+            type="button"
+            style={styles.btnSecondary}
+            onClick={handleRandomProgramHash}
+            disabled={submitting}
+          >
+            Random
+          </button>
+        </div>
       </label>
 
       <label style={styles.label}>

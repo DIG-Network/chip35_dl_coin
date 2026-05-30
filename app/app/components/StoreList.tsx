@@ -291,6 +291,7 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                   currentLabel={entry.label}
                   currentDescription={entry.dataStoreJson.metadata.description ?? ""}
                   currentRootHash={entry.dataStoreJson.metadata.rootHash}
+                  currentProgramHash={entry.dataStoreJson.metadata.programHash ?? ""}
                   onUpdated={() => {
                     setEditingId(null);
                     loadStores();
