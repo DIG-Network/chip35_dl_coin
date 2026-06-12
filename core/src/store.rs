@@ -146,6 +146,21 @@ pub fn mint_store(
     })
 }
 
+/// Reconstruct a DataStore from the coin spend that CREATED its current coin. For an eve
+/// store (no updates) this is the launcher coin's spend; for an updated store it is the
+/// latest update spend. Lets a client MELT a store it did not mint in-session (it fetches
+/// the creating spend from a full node, then rebuilds the DataStore here). `prev_delegated`
+/// is the parent's delegated-puzzle set ([] for an eve/owner-only store). Returns the
+/// reconstructed DataStore, or a Parse error if the spend is not a DataStore spend.
+pub fn datastore_from_spend(
+    parent_spend: CoinSpend,
+    prev_delegated: Vec<DelegatedPuzzle>,
+) -> Result<DataStore, WalletError> {
+    let ctx = &mut SpendContext::new();
+    DataStore::<DataStoreMetadata>::from_spend(ctx, &parent_spend, &prev_delegated)?
+        .ok_or_else(|| WalletError::Parse("coin spend is not a DataStore spend".to_string()))
+}
+
 #[derive(Clone, Debug)]
 pub enum DataStoreInnerSpend {
     Owner(PublicKey),
