@@ -21,12 +21,21 @@ use crate::types::{
     signature, to_js, DataStore, SuccessResponse,
 };
 use chip35_dl_coin::{
-    add_fee as core_add_fee, hex_spend_bundle_to_coin_spends as core_hex_to_css,
-    melt_store as core_melt_store, mint_store as core_mint_store,
-    oracle_spend as core_oracle_spend, spend_bundle_to_hex as core_sb_to_hex,
-    update_store_metadata as core_update_meta, update_store_ownership as core_update_owner,
-    DataStoreInnerSpend, SpendBundle as RustSpendBundle,
+    add_fee as core_add_fee, digstore_owner_hint as core_digstore_owner_hint,
+    hex_spend_bundle_to_coin_spends as core_hex_to_css, melt_store as core_melt_store,
+    mint_store as core_mint_store, oracle_spend as core_oracle_spend,
+    spend_bundle_to_hex as core_sb_to_hex, update_store_metadata as core_update_meta,
+    update_store_ownership as core_update_owner, DataStoreInnerSpend,
+    SpendBundle as RustSpendBundle,
 };
+
+/// Derive the digstore-scoped owner discovery hint for a 32-byte owner puzzle hash. The app
+/// computes the SAME hint to enumerate the wallet's stores via coinset
+/// get_coin_records_by_hint — it MUST match the hint mint_store emits. Returns 32 bytes.
+#[wasm_bindgen(js_name = "digstoreOwnerHint")]
+pub fn digstore_owner_hint(owner_puzzle_hash: &[u8]) -> Result<Vec<u8>, JsValue> {
+    Ok(core_digstore_owner_hint(bytes32(owner_puzzle_hash)?).to_vec())
+}
 
 #[wasm_bindgen(js_name = "mintStore")]
 #[allow(clippy::too_many_arguments)]
