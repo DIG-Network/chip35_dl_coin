@@ -1,6 +1,6 @@
 [package]
 name = "chip35-dl-coin"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "Isolated CHIP-0035 Chia DataLayer store coin driver (offline spend-bundle construction)."

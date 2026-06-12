@@ -21,7 +21,8 @@ use crate::types::{
     signature, to_js, DataStore, SuccessResponse,
 };
 use chip35_dl_coin::{
-    add_fee as core_add_fee, digstore_owner_hint as core_digstore_owner_hint,
+    add_fee as core_add_fee, datastore_from_spend as core_datastore_from_spend,
+    digstore_owner_hint as core_digstore_owner_hint,
     hex_spend_bundle_to_coin_spends as core_hex_to_css, melt_store as core_melt_store,
     mint_store as core_mint_store, oracle_spend as core_oracle_spend,
     spend_bundle_to_hex as core_sb_to_hex, update_store_metadata as core_update_meta,
@@ -35,6 +36,23 @@ use chip35_dl_coin::{
 #[wasm_bindgen(js_name = "digstoreOwnerHint")]
 pub fn digstore_owner_hint(owner_puzzle_hash: &[u8]) -> Result<Vec<u8>, JsValue> {
     Ok(core_digstore_owner_hint(bytes32(owner_puzzle_hash)?).to_vec())
+}
+
+/// Reconstruct a DataStore from the coin spend that created its current coin (the launcher
+/// spend for an eve store). Lets the app MELT a store it did not mint in-session: fetch the
+/// creating spend from a full node, rebuild the DataStore here, then meltStore() it.
+/// `coin_spend` is the wasm CoinSpend shape (Uint8Array fields); `prev_delegated_puzzles` is
+/// the parent's delegated-puzzle list ([] for an owner-only store).
+#[wasm_bindgen(js_name = "dataStoreFromSpend")]
+pub fn data_store_from_spend(
+    coin_spend: JsValue,
+    prev_delegated_puzzles: JsValue,
+) -> Result<JsValue, JsValue> {
+    let cs: crate::types::CoinSpend = from_js(coin_spend)?;
+    let prev = delegated_puzzles_from_js(prev_delegated_puzzles)?;
+    let ds = core_datastore_from_spend(cs.to_native()?, prev)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&DataStore::from_native(&ds)?)
 }
 
 #[wasm_bindgen(js_name = "mintStore")]
