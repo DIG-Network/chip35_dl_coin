@@ -29,6 +29,24 @@ pub const DATASTORE_LAUNCHER_HINT: Bytes32 = Bytes32::new(hex!(
     "aa7e5b234e1d55967bf0a316395a2eab6cb3370332c0f251f0e44a5afb84fc68"
 ));
 
+/// Domain tag for the digstore-scoped owner DISCOVERY hint. Scoping the hint to digstores
+/// (rather than hinting the raw owner puzzle hash) means a coinset
+/// `get_coin_records_by_hint(digstore_owner_hint(owner_ph))` query returns ONLY the owner's
+/// DataLayer store launcher coins — never their ordinary XCH coins, which are hinted with
+/// the raw puzzle hash. Versioned so the derivation can evolve without ambiguity.
+pub const DIGSTORE_OWNER_HINT_DOMAIN: &[u8] = b"dig:datastore:owner:v1";
+
+/// Derive the digstore-scoped owner discovery hint = `sha256(DOMAIN || owner_puzzle_hash)`.
+/// It is emitted as the FIRST (indexed) memo on the launch CREATE_COIN so the store is
+/// discoverable on-chain by owner. The client (JS) and the `digstore` CLI MUST compute this
+/// identically (same domain tag, same byte order) or detection misses stores.
+pub fn digstore_owner_hint(owner_puzzle_hash: Bytes32) -> Bytes32 {
+    let mut h = chia_sha2::Sha256::new();
+    h.update(DIGSTORE_OWNER_HINT_DOMAIN);
+    h.update(owner_puzzle_hash);
+    Bytes32::new(h.finalize())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn mint_store(
     minter_synthetic_key: PublicKey,
@@ -85,7 +103,14 @@ pub fn mint_store(
             .map(|cond| {
                 if let Condition::CreateCoin(cc) = cond {
                     if cc.puzzle_hash == SINGLETON_LAUNCHER_HASH.into() {
-                        let hint = ctx.hint(DATASTORE_LAUNCHER_HINT)?;
+                        // First (indexed) memo = the digstore-scoped owner discovery hint, so
+                        // the launcher coin (coin_id == launcher_id == store_id) is found by
+                        // get_coin_records_by_hint(digstore_owner_hint(owner_ph)). The global
+                        // DATASTORE_LAUNCHER_HINT is kept as a second memo for compatibility.
+                        let hint = ctx.memos(&[
+                            digstore_owner_hint(owner_puzzle_hash),
+                            DATASTORE_LAUNCHER_HINT,
+                        ])?;
 
                         return Ok(Condition::CreateCoin(CreateCoin {
                             puzzle_hash: cc.puzzle_hash,

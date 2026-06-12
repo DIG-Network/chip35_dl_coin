@@ -17,8 +17,8 @@ pub use chia_sdk_driver::{DataStore, DataStoreInfo, DataStoreMetadata, Delegated
 
 pub use error::{Error, WalletError};
 pub use store::{
-    add_fee, hex_spend_bundle_to_coin_spends, melt_store, mint_store, oracle_spend,
-    spend_bundle_to_hex, update_store_metadata, update_store_ownership, DataStoreInnerSpend,
-    DATASTORE_LAUNCHER_HINT,
+    add_fee, digstore_owner_hint, hex_spend_bundle_to_coin_spends, melt_store, mint_store,
+    oracle_spend, spend_bundle_to_hex, update_store_metadata, update_store_ownership,
+    DataStoreInnerSpend, DATASTORE_LAUNCHER_HINT, DIGSTORE_OWNER_HINT_DOMAIN,
 };
 pub use types::SuccessResponse;
