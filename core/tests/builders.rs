@@ -1,9 +1,9 @@
+use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
 use chip35_dl_coin::{
     hex_spend_bundle_to_coin_spends, master_to_wallet_unhardened, melt_store, mint_store,
-    oracle_spend, spend_bundle_to_hex, update_store_metadata, update_store_ownership, Bytes32, Coin,
-    DataStoreInnerSpend, DelegatedPuzzle, Error, SecretKey, Signature, SpendBundle,
+    oracle_spend, spend_bundle_to_hex, update_store_metadata, update_store_ownership, Bytes32,
+    Coin, DataStoreInnerSpend, DelegatedPuzzle, Error, SecretKey, Signature, SpendBundle,
 };
-use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
 
 fn synthetic() -> chip35_dl_coin::PublicKey {
     let sk = SecretKey::from_seed(&[2u8; 32]);
@@ -56,11 +56,16 @@ fn mint_then_melt_then_update_and_roundtrip() {
         0,
     )
     .expect("mint_store 2");
-    let hex1 = spend_bundle_to_hex(&SpendBundle::new(mint.coin_spends.clone(), Signature::default()))
-        .expect("hex1");
-    let hex2 =
-        spend_bundle_to_hex(&SpendBundle::new(mint2.coin_spends.clone(), Signature::default()))
-            .expect("hex2");
+    let hex1 = spend_bundle_to_hex(&SpendBundle::new(
+        mint.coin_spends.clone(),
+        Signature::default(),
+    ))
+    .expect("hex1");
+    let hex2 = spend_bundle_to_hex(&SpendBundle::new(
+        mint2.coin_spends.clone(),
+        Signature::default(),
+    ))
+    .expect("hex2");
     assert_eq!(hex1, hex2, "mint is deterministic");
 
     // Serialization round-trip.
@@ -91,8 +96,16 @@ fn update_ownership_with_writer_is_permission_denied() {
     let owner_ph: chip35_dl_coin::Bytes32 = StandardArgs::curry_tree_hash(synth).into();
     let admin = DelegatedPuzzle::Admin(StandardArgs::curry_tree_hash(synth));
     let mint = mint_store(
-        synth, vec![lead_coin(owner_ph)], chip35_dl_coin::Bytes32::new([3u8; 32]),
-        None, None, None, None, owner_ph, vec![admin], 0,
+        synth,
+        vec![lead_coin(owner_ph)],
+        chip35_dl_coin::Bytes32::new([3u8; 32]),
+        None,
+        None,
+        None,
+        None,
+        owner_ph,
+        vec![admin],
+        0,
     )
     .expect("mint");
     let res = update_store_ownership(
@@ -101,7 +114,10 @@ fn update_ownership_with_writer_is_permission_denied() {
         vec![DelegatedPuzzle::Admin(StandardArgs::curry_tree_hash(synth))],
         DataStoreInnerSpend::Writer(synth),
     );
-    assert!(matches!(res, Err(Error::Permission)), "writer cannot change ownership");
+    assert!(
+        matches!(res, Err(Error::Permission)),
+        "writer cannot change ownership"
+    );
 }
 
 #[test]
@@ -110,12 +126,23 @@ fn oracle_spend_without_oracle_puzzle_is_permission_denied() {
     let owner_ph: chip35_dl_coin::Bytes32 = StandardArgs::curry_tree_hash(synth).into();
     let admin = DelegatedPuzzle::Admin(StandardArgs::curry_tree_hash(synth));
     let mint = mint_store(
-        synth, vec![lead_coin(owner_ph)], chip35_dl_coin::Bytes32::new([3u8; 32]),
-        None, None, None, None, owner_ph, vec![admin], 0,
+        synth,
+        vec![lead_coin(owner_ph)],
+        chip35_dl_coin::Bytes32::new([3u8; 32]),
+        None,
+        None,
+        None,
+        None,
+        owner_ph,
+        vec![admin],
+        0,
     )
     .expect("mint");
     let res = oracle_spend(synth, vec![lead_coin(owner_ph)], mint.new_datastore, 0);
-    assert!(matches!(res, Err(Error::Permission)), "no oracle puzzle => permission denied");
+    assert!(
+        matches!(res, Err(Error::Permission)),
+        "no oracle puzzle => permission denied"
+    );
 }
 
 #[test]
@@ -123,8 +150,19 @@ fn mint_with_no_coins_errors() {
     let synth = synthetic();
     let owner_ph: chip35_dl_coin::Bytes32 = StandardArgs::curry_tree_hash(synth).into();
     let res = mint_store(
-        synth, vec![], chip35_dl_coin::Bytes32::new([3u8; 32]),
-        None, None, None, None, owner_ph, vec![], 0,
+        synth,
+        vec![],
+        chip35_dl_coin::Bytes32::new([3u8; 32]),
+        None,
+        None,
+        None,
+        None,
+        owner_ph,
+        vec![],
+        0,
     );
-    assert!(matches!(res, Err(Error::Parse(_))), "empty coins => parse error");
+    assert!(
+        matches!(res, Err(Error::Parse(_))),
+        "empty coins => parse error"
+    );
 }
