@@ -55,6 +55,9 @@ pub fn data_store_from_spend(
     to_js(&DataStore::from_native(&ds)?)
 }
 
+/// Build the spend bundle that launches a new DataLayer store singleton (see
+/// [`chip35_dl_coin::mint_store`]). `program_hash` is an optional 32-byte size-proof; the rest of
+/// the JS values mirror the core builder. Returns a `SuccessResponse` (`coinSpends` + `newStore`).
 #[wasm_bindgen(js_name = "mintStore")]
 #[allow(clippy::too_many_arguments)]
 pub fn mint_store(
@@ -89,6 +92,8 @@ pub fn mint_store(
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
+/// Exercise a store's oracle delegated puzzle (see [`chip35_dl_coin::oracle_spend`]). The spender
+/// pays the oracle fee plus `fee` from `selected_coins`. Returns a `SuccessResponse`.
 #[wasm_bindgen(js_name = "oracleSpend")]
 pub fn oracle_spend(
     spender_synthetic_key: &[u8],
@@ -107,6 +112,8 @@ pub fn oracle_spend(
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
+/// Burn (melt) a store singleton (see [`chip35_dl_coin::melt_store`]). Owner-authorized only.
+/// Returns the melt `CoinSpend[]`.
 #[wasm_bindgen(js_name = "meltStore")]
 pub fn melt_store(store: JsValue, owner_public_key: &[u8]) -> Result<JsValue, JsValue> {
     let store: DataStore = from_js(store)?;
@@ -115,6 +122,9 @@ pub fn melt_store(store: JsValue, owner_public_key: &[u8]) -> Result<JsValue, Js
     coin_spends_to_js(&css)
 }
 
+/// Update a store's metadata (see [`chip35_dl_coin::update_store_metadata`]). Exactly one of
+/// `owner_public_key`, `admin_public_key`, `writer_public_key` must be provided — it selects the
+/// authorizing role. Returns a `SuccessResponse`.
 #[wasm_bindgen(js_name = "updateStoreMetadata")]
 #[allow(clippy::too_many_arguments)]
 pub fn update_store_metadata(
@@ -129,16 +139,15 @@ pub fn update_store_metadata(
     writer_public_key: Option<Vec<u8>>,
 ) -> Result<JsValue, JsValue> {
     let store: DataStore = from_js(store)?;
-    let inner = match (&owner_public_key, &admin_public_key, &writer_public_key) {
-        (Some(pk), None, None) => DataStoreInnerSpend::Owner(public_key(pk)?),
-        (None, Some(pk), None) => DataStoreInnerSpend::Admin(public_key(pk)?),
-        (None, None, Some(pk)) => DataStoreInnerSpend::Writer(public_key(pk)?),
-        _ => {
-            return Err(JsValue::from_str(
+    let inner =
+        match (&owner_public_key, &admin_public_key, &writer_public_key) {
+            (Some(pk), None, None) => DataStoreInnerSpend::Owner(public_key(pk)?),
+            (None, Some(pk), None) => DataStoreInnerSpend::Admin(public_key(pk)?),
+            (None, None, Some(pk)) => DataStoreInnerSpend::Writer(public_key(pk)?),
+            _ => return Err(JsValue::from_str(
                 "Exactly one of ownerPublicKey, adminPublicKey, writerPublicKey must be provided",
-            ))
-        }
-    };
+            )),
+        };
     let new_program_hash = match new_program_hash {
         Some(sp) => Some(bytes32(&sp)?.to_string()),
         None => None,
@@ -156,6 +165,10 @@ pub fn update_store_metadata(
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
+/// Transfer ownership and/or replace the delegated-puzzle set (see
+/// [`chip35_dl_coin::update_store_ownership`]). Omitting `new_owner_puzzle_hash` keeps the
+/// current owner. Exactly one of `owner_public_key`/`admin_public_key` must be provided. Returns
+/// a `SuccessResponse`.
 #[wasm_bindgen(js_name = "updateStoreOwnership")]
 pub fn update_store_ownership(
     store: JsValue,
@@ -189,6 +202,8 @@ pub fn update_store_ownership(
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
+/// Serialize a spend bundle (`{coinSpends, aggregatedSignature}`) to its hex wire encoding
+/// (see [`chip35_dl_coin::spend_bundle_to_hex`]).
 #[wasm_bindgen(js_name = "spendBundleToHex")]
 pub fn spend_bundle_to_hex(spend_bundle: JsValue) -> Result<String, JsValue> {
     #[derive(serde::Deserialize)]
@@ -208,22 +223,30 @@ pub fn spend_bundle_to_hex(spend_bundle: JsValue) -> Result<String, JsValue> {
     core_sb_to_hex(&bundle).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Decode a hex-encoded spend bundle into its `CoinSpend[]` (see
+/// [`chip35_dl_coin::hex_spend_bundle_to_coin_spends`]).
 #[wasm_bindgen(js_name = "hexSpendBundleToCoinSpends")]
 pub fn hex_spend_bundle_to_coin_spends(hex: String) -> Result<JsValue, JsValue> {
     let css = core_hex_to_css(&hex).map_err(|e| JsValue::from_str(&e.to_string()))?;
     coin_spends_to_js(&css)
 }
 
+/// Build coin spends that reserve `fee` mojos from the spender's own coins while asserting
+/// concurrent spend of `assert_coin_ids` (see [`chip35_dl_coin::add_fee`]). Lets a fee-less
+/// singleton op (update/melt) carry a network fee. `selected_coins` is `Coin[]`,
+/// `assert_coin_ids` is `Uint8Array[]` of 32-byte coin ids. Returns `CoinSpend[]`.
 #[wasm_bindgen(js_name = "addFee")]
 pub fn add_fee(
     spender_synthetic_key: &[u8],
-    selected_coins: JsValue,    // Coin[]
-    assert_coin_ids: JsValue,   // Uint8Array[] (32-byte coin ids)
+    selected_coins: JsValue,
+    assert_coin_ids: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
-    // CoinSpend[]
     let ids_raw: Vec<serde_bytes::ByteBuf> = from_js(assert_coin_ids)?;
-    let ids = ids_raw.iter().map(|b| bytes32(b)).collect::<Result<Vec<_>, _>>()?;
+    let ids = ids_raw
+        .iter()
+        .map(|b| bytes32(b))
+        .collect::<Result<Vec<_>, _>>()?;
     let css = core_add_fee(
         public_key(spender_synthetic_key)?,
         coins_from_js(selected_coins)?,
