@@ -28,9 +28,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: jetli/wasm-pack-action@0d2e8b7bef80f55b602e9d6cf6df40f30e1a3a4f # v0.4.0
-        with:
-          version: latest
+      - name: install wasm-pack (official installer)
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: 20
