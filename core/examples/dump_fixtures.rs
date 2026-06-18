@@ -5,9 +5,7 @@
 use chia_bls::{master_to_wallet_unhardened, SecretKey};
 use chia_protocol::{Bytes32, SpendBundle};
 use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
-use chip35_dl_coin::{
-    mint_store, spend_bundle_to_hex, Coin, DelegatedPuzzle, Signature,
-};
+use chip35_dl_coin::{mint_store, spend_bundle_to_hex, Coin, DelegatedPuzzle, Signature};
 
 fn main() {
     let sk = SecretKey::from_seed(&[2u8; 32]);
@@ -48,7 +46,10 @@ fn main() {
     .expect("hex");
 
     println!("{{");
-    println!("  \"syntheticKeyHex\": \"{}\",", hex::encode(synthetic.to_bytes()));
+    println!(
+        "  \"syntheticKeyHex\": \"{}\",",
+        hex::encode(synthetic.to_bytes())
+    );
     println!("  \"puzzleHashHex\": \"{}\",", hex::encode(ph));
     println!("  \"parentCoinInfoHex\": \"{}\",", hex::encode([7u8; 32]));
     println!("  \"rootHashHex\": \"{}\",", hex::encode([3u8; 32]));

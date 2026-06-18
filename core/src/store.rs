@@ -47,6 +47,21 @@ pub fn digstore_owner_hint(owner_puzzle_hash: Bytes32) -> Bytes32 {
     Bytes32::new(h.finalize())
 }
 
+/// Build the spend bundle that LAUNCHES a new DataLayer store singleton.
+///
+/// Spends the minter's `selected_coins` (the first is the lead coin; the rest assert concurrent
+/// spend with it), mints the launcher coin via [`Launcher::mint_datastore`], and returns the
+/// resulting [`DataStore`] state for chaining into the next update. The launcher CREATE_COIN
+/// carries two memos: the digstore-scoped [`digstore_owner_hint`] (first, for owner discovery)
+/// then the global [`DATASTORE_LAUNCHER_HINT`]. Any coin value above `fee + 1` mojo is returned
+/// to the minter as change, hinted to their own puzzle hash.
+///
+/// `program_hash` is the optional size-proof field of the metadata. `delegated_puzzles` grants
+/// admin/writer/oracle delegated authority on the store.
+///
+/// # Errors
+/// [`WalletError::Parse`] if `selected_coins` is empty; [`WalletError::Driver`] for any
+/// underlying spend-construction failure.
 #[allow(clippy::too_many_arguments)]
 pub fn mint_store(
     minter_synthetic_key: PublicKey,
@@ -161,12 +176,20 @@ pub fn datastore_from_spend(
         .ok_or_else(|| WalletError::Parse("coin spend is not a DataStore spend".to_string()))
 }
 
+/// Which delegated role authorizes a store update, carrying that role's public key.
+///
+/// The role determines what the spend may do: an [`Owner`](Self::Owner) can change metadata
+/// and ownership; an [`Admin`](Self::Admin) can update metadata and the delegated-puzzle set; a
+/// [`Writer`](Self::Writer) can only update metadata. There is intentionally no `Oracle` variant
+/// — oracle spends pay a fee but cannot change metadata or owners.
 #[derive(Clone, Debug)]
 pub enum DataStoreInnerSpend {
+    /// Spend authorized by the store owner (full authority).
     Owner(PublicKey),
+    /// Spend authorized by an admin delegated puzzle.
     Admin(PublicKey),
+    /// Spend authorized by a writer delegated puzzle (metadata only).
     Writer(PublicKey),
-    // does not include oracle since it can't change metadata/owners
 }
 
 fn update_store_with_conditions(
@@ -210,6 +233,18 @@ fn update_store_with_conditions(
     })
 }
 
+/// Build the spend that transfers store ownership and/or replaces its delegated-puzzle set.
+///
+/// An [`Owner`](DataStoreInnerSpend::Owner) spend re-creates the singleton under
+/// `new_owner_puzzle_hash` with `new_delegated_puzzles`. An [`Admin`](DataStoreInnerSpend::Admin)
+/// spend cannot move ownership directly, so it instead emits an `UpdateDataStoreMerkleRoot`
+/// condition over the new delegated-puzzle set (recreation memos pin the owner). Returns the new
+/// [`DataStore`] state.
+///
+/// # Errors
+/// [`WalletError::Permission`] if authorized by a [`Writer`](DataStoreInnerSpend::Writer)
+/// (writers cannot change ownership); [`WalletError::Driver`]/[`WalletError::Parse`] on spend
+/// construction or re-parse failure.
 pub fn update_store_ownership(
     datastore: DataStore,
     new_owner_puzzle_hash: Bytes32,
@@ -259,6 +294,17 @@ pub fn update_store_ownership(
     )
 }
 
+/// Build the spend that updates a store's metadata (root hash, label, description, size, and
+/// optional size-proof `program_hash`).
+///
+/// Emits a `new_metadata` condition with the supplied fields. An
+/// [`Owner`](DataStoreInnerSpend::Owner) spend additionally re-creates the singleton coin under
+/// the existing owner and delegated puzzles (so the owner keeps control); admin/writer spends
+/// rely on the store's own recreation. Returns the new [`DataStore`] state.
+///
+/// # Errors
+/// [`WalletError::Permission`] if the role is not allowed; [`WalletError::Driver`]/
+/// [`WalletError::Parse`] on spend construction or re-parse failure.
 pub fn update_store_metadata(
     datastore: DataStore,
     new_root_hash: Bytes32,
@@ -303,7 +349,18 @@ pub fn update_store_metadata(
     )
 }
 
-pub fn melt_store(datastore: DataStore, owner_pk: PublicKey) -> Result<Vec<CoinSpend>, WalletError> {
+/// Build the spend that BURNS (melts) a store singleton, removing it from the chain.
+///
+/// Owner-authorized only: the inner spend reserves a 1-mojo fee and emits the `MeltSingleton`
+/// condition. Returns the single melt coin spend (no resulting [`DataStore`], since the store
+/// ceases to exist).
+///
+/// # Errors
+/// [`WalletError::Driver`] on spend-construction failure.
+pub fn melt_store(
+    datastore: DataStore,
+    owner_pk: PublicKey,
+) -> Result<Vec<CoinSpend>, WalletError> {
     let ctx = &mut SpendContext::new();
 
     let melt_conditions = Conditions::new()
@@ -322,6 +379,18 @@ pub fn melt_store(datastore: DataStore, owner_pk: PublicKey) -> Result<Vec<CoinS
     Ok(vec![new_spend])
 }
 
+/// Build the spend that exercises a store's ORACLE delegated puzzle.
+///
+/// Anyone may oracle-spend a store that carries an [`Oracle`](DelegatedPuzzle::Oracle) delegated
+/// puzzle: the spender pays `oracle_fee` (defined by that puzzle) plus the network `fee` from
+/// their `selected_coins`, asserts the store's oracle puzzle announcement, and re-creates the
+/// singleton unchanged. Change above the total is returned to the spender. Returns the new
+/// [`DataStore`] state.
+///
+/// # Errors
+/// [`WalletError::Parse`] if `selected_coins` is empty; [`WalletError::Permission`] if the store
+/// has no oracle delegated puzzle; [`WalletError::Driver`] on spend-construction failure
+/// (including an odd oracle fee).
 pub fn oracle_spend(
     spender_synthetic_key: PublicKey,
     selected_coins: Vec<Coin>,
@@ -449,7 +518,8 @@ pub fn add_fee(
 pub fn hex_spend_bundle_to_coin_spends(hex_str: &str) -> Result<Vec<CoinSpend>, Error> {
     use chia_traits::Streamable;
     let bytes = hex::decode(hex_str).map_err(|e| Error::Parse(format!("hex decode: {e}")))?;
-    let spend_bundle = SpendBundle::from_bytes(&bytes).map_err(|e| Error::Parse(format!("bundle parse: {e}")))?;
+    let spend_bundle =
+        SpendBundle::from_bytes(&bytes).map_err(|e| Error::Parse(format!("bundle parse: {e}")))?;
     Ok(spend_bundle.coin_spends)
 }
 
