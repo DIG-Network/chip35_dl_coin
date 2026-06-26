@@ -34,12 +34,32 @@ pub const DATASTORE_LAUNCHER_HINT: Bytes32 = Bytes32::new(hex!(
 /// `get_coin_records_by_hint(digstore_owner_hint(owner_ph))` query returns ONLY the owner's
 /// DataLayer store launcher coins — never their ordinary XCH coins, which are hinted with
 /// the raw puzzle hash. Versioned so the derivation can evolve without ambiguity.
+///
+/// This enables OWNER DISCOVERY BY CAPSULE LINEAGE. A capsule is one immutable store
+/// generation = the pair `(storeId, rootHash)` (written `storeId:rootHash`); a store is a
+/// sequence of capsules, one per commit. Each launcher coin returned by the hint query is a
+/// store's genesis launcher = its FIRST capsule `(storeId, rootHash_0)`, from which the
+/// singleton lineage (the store's full sequence of capsules) is followed forward.
+///
+/// CONTRACT: these bytes (`b"dig:datastore:owner:v1"`) are byte-identical across
+/// chip35_dl_coin and digstore — a mutual byte-identical contract. A mismatched hint silently
+/// causes enumeration misses (owned stores never surface in the query).
 pub const DIGSTORE_OWNER_HINT_DOMAIN: &[u8] = b"dig:datastore:owner:v1";
 
 /// Derive the digstore-scoped owner discovery hint = `sha256(DOMAIN || owner_puzzle_hash)`.
 /// It is emitted as the FIRST (indexed) memo on the launch CREATE_COIN so the store is
 /// discoverable on-chain by owner. The client (JS) and the `digstore` CLI MUST compute this
 /// identically (same domain tag, same byte order) or detection misses stores.
+///
+/// This is what ENABLES OWNER DISCOVERY BY CAPSULE LINEAGE: querying coinset by this hint
+/// yields each owned store's genesis launcher coin = the store's FIRST capsule
+/// `(storeId, rootHash_0)` (a capsule = one immutable store generation, the pair
+/// `(storeId, rootHash)`). From that genesis the singleton lineage — the store's full sequence
+/// of capsules, one per commit — is followed forward.
+///
+/// This is the SAME derivation `digstore` uses: the domain [`DIGSTORE_OWNER_HINT_DOMAIN`]
+/// (`b"dig:datastore:owner:v1"`) is byte-identical across chip35_dl_coin and digstore (a mutual
+/// byte-identical contract). A mismatched hint causes enumeration misses.
 pub fn digstore_owner_hint(owner_puzzle_hash: Bytes32) -> Bytes32 {
     let mut h = chia_sha2::Sha256::new();
     h.update(DIGSTORE_OWNER_HINT_DOMAIN);
