@@ -16,9 +16,24 @@
 // BROWSER-ONLY: SignClient opens IndexedDB at init time; this module
 // guards all paths with `typeof window` checks to be safe during Next.js's
 // server prerender pass.
+//
+// TRANSPORT SWAP — DIG Browser injected wallet (window.chia):
+// When the page is opened inside the DIG Browser, `window.chia.isDIG` is
+// present. We then PREFER the in-process wallet over WalletConnect: no QR, no
+// relay, no pairing. The native provider returns the SAME Sage-shaped responses
+// (chia_getAddress / chip0002_getAssetCoins / chip0002_signCoinSpends), so the
+// callers in storeOps.ts and the parsing here are unchanged — only the
+// TRANSPORT is swapped. When `window.chia` is absent the WalletConnect path
+// below runs EXACTLY as before (zero regression). This mirrors hub.dig.net's
+// injected-wallet.js + wallet-transport.js pattern.
 
 import SignClient from "@walletconnect/sign-client";
 import { SessionTypes } from "@walletconnect/types";
+import {
+  isInjectedAvailable,
+  injectedConnect,
+  injectedRequest,
+} from "./injectedWallet";
 
 // ---------------------------------------------------------------------------
 // Wire types — JSON shapes matching Sage's RPC convention
@@ -73,6 +88,20 @@ let _initPromise: Promise<void> | undefined;
 // Event listeners set up after first client init
 let _listenersAttached = false;
 
+// True once we've connected via the DIG Browser's injected provider. While set,
+// every RPC below routes through window.chia instead of the WalletConnect relay.
+// (There is no per-session topic for the injected provider — it's one
+// in-process wallet keyed on the page origin — so this boolean is the whole
+// session state for that backend.)
+let _injectedActive = false;
+
+/**
+ * Sentinel pairing URI returned by connect() when the injected backend is used.
+ * There is no QR/relay URI in that case; the UI checks for this value to skip
+ * the QR modal and go straight to the connected state.
+ */
+export const INJECTED_URI = "injected:dig-browser";
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -123,6 +152,31 @@ async function _initClient(): Promise<SignClient | undefined> {
 function _handleDisconnect() {
   _session = undefined;
   _address = undefined;
+  _injectedActive = false;
+}
+
+/**
+ * If the DIG Browser already approved this origin, restore the address silently
+ * (eager connect) so a reload comes back connected without a fresh prompt. Best
+ * effort: any failure leaves us disconnected and the user can connect manually.
+ */
+async function _restoreInjectedSession(): Promise<boolean> {
+  if (!isInjectedAvailable()) return false;
+  try {
+    await injectedConnect(true); // eager: don't force an approval prompt
+    const resp = await injectedRequest<{ address: string }>(
+      "chia_getAddress",
+      {}
+    );
+    if (resp?.address) {
+      _injectedActive = true;
+      _address = resp.address;
+      return true;
+    }
+  } catch {
+    // Not yet approved for this origin (or older provider) — fall through.
+  }
+  return false;
 }
 
 async function _restoreSession(): Promise<void> {
@@ -164,6 +218,13 @@ export async function init(): Promise<void> {
   if (typeof window === "undefined") return;
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
+    // Inside the DIG Browser, PREFER the injected wallet: try a silent restore
+    // and skip WalletConnect init entirely (no relay/IndexedDB, and no need for
+    // a WalletConnect project id). Outside it, run the WC flow exactly as before.
+    if (isInjectedAvailable()) {
+      await _restoreInjectedSession();
+      return;
+    }
     await _initClient();
     await _restoreSession();
   })();
@@ -171,18 +232,45 @@ export async function init(): Promise<void> {
 }
 
 /**
- * Initiate a new WalletConnect pairing.
+ * Initiate a wallet connection.
  *
  * Returns `{ uri, approvalPromise }` so the caller can:
  *   1. Display `uri` as a QR code (using `qrcode.react`).
  *   2. `await approvalPromise` to get the address once the user approves.
  *
- * Throws if the client cannot be initialised (missing project id, etc.).
+ * DIG Browser: when `window.chia.isDIG` is present, `uri` is the `INJECTED_URI`
+ * sentinel (no QR) and `approvalPromise` resolves once the user approves this
+ * origin in the native wallet UI. Otherwise the WalletConnect pairing runs
+ * exactly as before.
+ *
+ * Throws if the WalletConnect client cannot be initialised (missing project id,
+ * etc.) on the non-injected path.
  */
 export async function connect(): Promise<{
   uri: string;
   approvalPromise: Promise<string | undefined>;
 }> {
+  // DIG Browser injected path: approve this origin in the native wallet, then
+  // read the address. No QR/relay — return the sentinel uri immediately.
+  if (isInjectedAvailable()) {
+    const approvalPromise = (async (): Promise<string | undefined> => {
+      try {
+        await injectedConnect(false); // blocks on the native approval UI
+        const resp = await injectedRequest<{ address: string }>(
+          "chia_getAddress",
+          {}
+        );
+        _injectedActive = true;
+        _address = resp?.address;
+        return _address;
+      } catch (e) {
+        console.error("[chip35/InjectedWallet] connect failed:", e);
+        return undefined;
+      }
+    })();
+    return { uri: INJECTED_URI, approvalPromise };
+  }
+
   const client = await _initClient();
   if (!client) {
     throw new Error(
@@ -255,6 +343,18 @@ export async function getAssetCoins(
   offset: number,
   limit: number
 ): Promise<SageAssetCoin[] | undefined> {
+  const params = { type, assetId, includedLocked, offset, limit };
+  if (_injectedActive) {
+    try {
+      return await injectedRequest<SageAssetCoin[]>(
+        "chip0002_getAssetCoins",
+        params
+      );
+    } catch (e) {
+      console.error("[chip35/InjectedWallet] getAssetCoins failed:", e);
+      return undefined;
+    }
+  }
   if (!_client || !_session) return undefined;
   try {
     const response = await _client.request<SageAssetCoin[]>({
@@ -262,7 +362,7 @@ export async function getAssetCoins(
       chainId: "chia:mainnet",
       request: {
         method: "chip0002_getAssetCoins",
-        params: { type, assetId, includedLocked, offset, limit },
+        params,
       },
     });
     return response;
@@ -286,6 +386,15 @@ export async function signCoinSpends(
   partial: boolean,
   autoSubmit: boolean
 ): Promise<string | undefined> {
+  const params = { coinSpends, partial, auto_submit: autoSubmit };
+  if (_injectedActive) {
+    try {
+      return await injectedRequest<string>("chip0002_signCoinSpends", params);
+    } catch (e) {
+      console.error("[chip35/InjectedWallet] signCoinSpends failed:", e);
+      return undefined;
+    }
+  }
   if (!_client || !_session) return undefined;
   try {
     const response = await _client.request<string>({
@@ -293,7 +402,7 @@ export async function signCoinSpends(
       chainId: "chia:mainnet",
       request: {
         method: "chip0002_signCoinSpends",
-        params: { coinSpends, partial, auto_submit: autoSubmit },
+        params,
       },
     });
     return response;
@@ -307,7 +416,10 @@ export async function signCoinSpends(
  * Disconnect and clean up the active session.
  */
 export async function disconnect(): Promise<void> {
-  if (_client && _session?.topic) {
+  // Injected backend: there is no relay session to tear down — the in-process
+  // wallet keeps its own per-origin consent. Just drop our local state so the
+  // UI returns to the disconnected view.
+  if (!_injectedActive && _client && _session?.topic) {
     try {
       await _client.disconnect({
         topic: _session.topic,
@@ -320,7 +432,8 @@ export async function disconnect(): Promise<void> {
   _handleDisconnect();
 }
 
-/** True when a wallet session is active. */
+/** True when a wallet session is active (injected provider or WalletConnect). */
 export function isConnected(): boolean {
+  if (_injectedActive) return !!_address;
   return !!_address && !!_session;
 }
