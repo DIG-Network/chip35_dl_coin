@@ -36,7 +36,7 @@ const Dashboard = dynamic(
               <div>
                 <h1 style={pageStyles.title}>CHIP-0035 DataLayer Tech Demo</h1>
                 <p style={pageStyles.subtitle}>
-                  Mint, update, and delete Chia DataLayer stores via Sage Wallet
+                  Mint, update, and delete Chia DataLayer stores via the DIG Browser or Sage Wallet
                 </p>
               </div>
               <WalletConnector />

@@ -16,7 +16,13 @@ import React, {
 export interface WalletContextValue {
   address: string | undefined;
   connected: boolean;
-  /** Call to begin a pairing flow. Returns { uri, approvalPromise }. */
+  /**
+   * True when running inside the DIG Browser (its `window.chia.isDIG` provider
+   * is present). The connect flow then uses the in-process wallet (no QR/relay);
+   * UI can use this to label the button accordingly.
+   */
+  injectedAvailable: boolean;
+  /** Call to begin a connect flow. Returns { uri, approvalPromise }. */
   startConnect: () => Promise<{ uri: string; approvalPromise: Promise<string | undefined> }>;
   /** Disconnect and clear state. */
   disconnect: () => Promise<void>;
@@ -34,15 +40,20 @@ export function useWallet(): WalletContextValue {
 
 export default function WalletProvider({ children }: { children: React.ReactNode }) {
   const [address, setAddressState] = useState<string | undefined>(undefined);
+  const [injectedAvailable, setInjectedAvailable] = useState(false);
   const initedRef = useRef(false);
 
-  // On mount, initialise walletConnect and restore any existing session.
+  // On mount, detect the DIG Browser's injected wallet, then initialise the
+  // wallet layer and restore any existing session (injected eager-restore or
+  // WalletConnect).
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (initedRef.current) return;
     initedRef.current = true;
 
     (async () => {
+      const { isInjectedAvailable } = await import("../lib/injectedWallet");
+      setInjectedAvailable(isInjectedAvailable());
       const wc = await import("../lib/walletConnect");
       await wc.init();
       const addr = wc.getAddress();
@@ -68,7 +79,14 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
   return (
     <WalletContext.Provider
-      value={{ address, connected: !!address, startConnect, disconnect, setAddress }}
+      value={{
+        address,
+        connected: !!address,
+        injectedAvailable,
+        startConnect,
+        disconnect,
+        setAddress,
+      }}
     >
       {children}
     </WalletContext.Provider>
