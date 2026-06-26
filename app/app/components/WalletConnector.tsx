@@ -7,6 +7,7 @@ import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import toast from "react-hot-toast";
 import { useWallet } from "./WalletProvider";
+import { INJECTED_URI } from "../lib/walletConnect";
 
 function truncAddr(addr: string): string {
   if (addr.length <= 16) return addr;
@@ -14,34 +15,38 @@ function truncAddr(addr: string): string {
 }
 
 export default function WalletConnector() {
-  const { address, connected, startConnect, disconnect, setAddress } = useWallet();
+  const { address, connected, injectedAvailable, startConnect, disconnect, setAddress } =
+    useWallet();
   const [modalOpen, setModalOpen] = useState(false);
   const [qrUri, setQrUri] = useState<string | undefined>();
   const [awaitingApproval, setAwaitingApproval] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const handleConnect = async () => {
-    setModalOpen(true);
     setQrUri(undefined);
     setAwaitingApproval(false);
     try {
       const { uri, approvalPromise } = await startConnect();
-      setQrUri(uri);
+      // DIG Browser injected wallet: no QR/relay — approval happens in the
+      // native wallet UI. Skip the QR modal and just wait for approval.
+      const injected = uri === INJECTED_URI;
+      if (!injected) {
+        setModalOpen(true);
+        setQrUri(uri);
+      }
       setAwaitingApproval(true);
       const addr = await approvalPromise;
       if (addr) {
         setAddress(addr);
         toast.success("Wallet connected: " + truncAddr(addr));
-        setModalOpen(false);
       } else {
         toast.error("Wallet connection was rejected or timed out.");
-        setModalOpen(false);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error("Connection failed: " + msg);
-      setModalOpen(false);
     } finally {
+      setModalOpen(false);
       setAwaitingApproval(false);
     }
   };
@@ -83,7 +88,7 @@ export default function WalletConnector() {
         </div>
       ) : (
         <button style={styles.btnPrimary} onClick={handleConnect}>
-          Connect Wallet
+          {injectedAvailable ? "Connect DIG Wallet" : "Connect Wallet"}
         </button>
       )}
 

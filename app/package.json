@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "npx serve@latest out -l 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node tests/injectedWallet.mjs"
   },
   "dependencies": {
     "@walletconnect/sign-client": "^2.19.0",

@@ -1,6 +1,13 @@
 # chip35-dl-coin-app
 
-Next.js demo UI for the CHIP-0035 DataLayer store driver: connect the **Sage** wallet over **WalletConnect**, then **list / mint / update / delete** DataLayer stores on Chia **mainnet**.
+Next.js demo UI for the CHIP-0035 DataLayer store driver: connect a wallet, then **list / mint / update / delete** DataLayer stores on Chia **mainnet**.
+
+Two wallet backends, auto-selected at connect time:
+
+- **DIG Browser** — when the page runs inside the DIG Browser its in-process wallet is injected as `window.chia` (`isDIG`). The app prefers it automatically: no QR, no relay, no project id. The button reads **Connect DIG Wallet** and approval happens in the native wallet UI.
+- **WalletConnect → Sage** — outside the DIG Browser, the existing QR/relay pairing with the Sage wallet runs unchanged (needs `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`).
+
+Both backends return the same Sage-shaped RPC responses, so only the transport differs (`app/lib/injectedWallet.ts` vs the WalletConnect path in `app/lib/walletConnect.ts`).
 
 > Full project docs (architecture, tests, troubleshooting) are in the [repo root README](../README.md).
 
@@ -28,6 +35,7 @@ Static export build: `npm run build` (→ `out/`), then `npm start`.
 | `npm run build` | Static export to `out/` |
 | `npm start` | Serve `out/` on :3000 |
 | `npm run lint` | Next.js lint |
+| `npm test` | Unit tests (`tests/*.mjs`, Node `assert`) |
 
 ## How it loads the WASM (don't change this)
 
@@ -44,7 +52,9 @@ app/
     layout.tsx                WalletProvider + Toaster
     lib/
       wasm.ts                 getWasm() singleton loader
-      walletConnect.ts        SignClient: connect / getAddress / getAssetCoins / signCoinSpends
+      walletConnect.ts        wallet RPC: connect / getAddress / getAssetCoins / signCoinSpends
+                              (routes to injectedWallet when window.chia.isDIG, else WalletConnect/Sage)
+      injectedWallet.ts       DIG Browser in-process wallet adapter (window.chia)
       chiaAddress.ts          chia-wallet-sdk-wasm: address decode + uncurry → synthetic pubkey
       coinset.ts              pushTx + confirmation/liveness reads
       convert.ts              wasm ↔ WalletConnect/coinset/localStorage shapes + coin id
