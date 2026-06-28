@@ -19,17 +19,59 @@ pub fn init() {
 
 use crate::types::{
     bytes32, coin_spends_to_js, coins_from_js, delegated_puzzles_from_js, from_js, public_key,
-    signature, to_js, DataStore, SuccessResponse,
+    signature, to_js, DataStore, DelegatedPuzzle, SuccessResponse,
 };
 use chip35_dl_coin::{
-    add_fee as core_add_fee, datastore_from_spend as core_datastore_from_spend,
+    add_fee as core_add_fee, admin_delegated_puzzle_from_key as core_admin_dp,
+    datastore_from_spend as core_datastore_from_spend,
     digstore_owner_hint as core_digstore_owner_hint,
     hex_spend_bundle_to_coin_spends as core_hex_to_css, melt_store as core_melt_store,
-    mint_store as core_mint_store, oracle_spend as core_oracle_spend,
-    spend_bundle_to_hex as core_sb_to_hex, update_store_metadata as core_update_meta,
-    update_store_ownership as core_update_owner, DataStoreInnerSpend,
+    mint_store as core_mint_store, oracle_delegated_puzzle as core_oracle_dp,
+    oracle_spend as core_oracle_spend, spend_bundle_to_hex as core_sb_to_hex,
+    update_store_metadata as core_update_meta, update_store_ownership as core_update_owner,
+    writer_delegated_puzzle_from_key as core_writer_dp, DataStoreInnerSpend,
     SpendBundle as RustSpendBundle,
 };
+
+// ---------------------------------------------------------------------------
+// Delegated-puzzle constructors (hub Teams #43 + revocable deploy tokens #17).
+// A delegate is granted by adding the returned DelegatedPuzzle to a store's
+// delegated-puzzle set (mintStore / updateStoreOwnership); revoked by replacing
+// that set. The JS shape mirrors the DelegatedPuzzle the other builders accept,
+// so the result drops straight into `delegatedPuzzles`/`newDelegatedPuzzles`.
+// ---------------------------------------------------------------------------
+
+/// Build the **Admin** delegated puzzle for a 48-byte synthetic public key (a hub Teams admin).
+/// An admin may update the store AND change delegation (add/remove writers — i.e. revoke a deploy
+/// token), but cannot transfer ownership. Returns a `DelegatedPuzzle` (`{ adminInnerPuzzleHash }`).
+#[wasm_bindgen(js_name = "adminDelegatedPuzzleFromKey")]
+pub fn admin_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue, JsValue> {
+    let dp = core_admin_dp(&public_key(synthetic_key)?);
+    to_js(&DelegatedPuzzle::from_native(&dp)?)
+}
+
+/// Build the **Writer** delegated puzzle for a 48-byte synthetic public key — a revocable deploy
+/// token (#17) or a hub Teams writer (#43). A writer may advance the root (deploy a new capsule)
+/// WITHOUT the owner seed, but may NOT change delegation or transfer ownership. Add it to a store
+/// to issue the token; replace the store's delegated set to revoke it. Returns a `DelegatedPuzzle`
+/// (`{ writerInnerPuzzleHash }`).
+#[wasm_bindgen(js_name = "writerDelegatedPuzzleFromKey")]
+pub fn writer_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue, JsValue> {
+    let dp = core_writer_dp(&public_key(synthetic_key)?);
+    to_js(&DelegatedPuzzle::from_native(&dp)?)
+}
+
+/// Build the **Oracle** delegated puzzle: anyone may spend the store for the fixed `oracle_fee`
+/// (mojos) paid to the 32-byte `oracle_puzzle_hash`. Returns a `DelegatedPuzzle`
+/// (`{ oraclePaymentPuzzleHash, oracleFee }`).
+#[wasm_bindgen(js_name = "oracleDelegatedPuzzle")]
+pub fn oracle_delegated_puzzle(
+    oracle_puzzle_hash: &[u8],
+    oracle_fee: u64,
+) -> Result<JsValue, JsValue> {
+    let dp = core_oracle_dp(bytes32(oracle_puzzle_hash)?, oracle_fee);
+    to_js(&DelegatedPuzzle::from_native(&dp)?)
+}
 
 /// Derive the digstore-scoped owner discovery hint for a 32-byte owner puzzle hash. The app
 /// computes the SAME hint to enumerate the wallet's stores via coinset
