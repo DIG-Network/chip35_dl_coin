@@ -29,6 +29,9 @@ builders the toolkit needs and to expose them at the wasm boundary with a stable
 | `did.rs` | DID (creator identity) creation builder. | #35 |
 | `cat.rs` | CAT issuance builder. | #35 |
 | `offer.rs` | Offer encode/decode (canonical bech32-ish `offer1...` text ↔ spend bundle). | #35 |
+| `payment.rs` | In-dapp **payment** (XCH + any CAT incl. DIG) + **paywall** (pay-to-unlock receipt + verify). | #46 |
+| `gating.rs` | **NFT-gating** — read/verify NFT ownership + collection membership (no spend). | #46 |
+| `subscription.rs` | Subscription / recurring **scaffold** (clear TODO; needs a time-locked/delegated puzzle). | #46 |
 | ~~`deploy_token.rs`~~ | **REMOVED** — the bespoke scaffold is superseded. A deploy token is a **revocable writer delegate** (see `store.rs`); there is no separate puzzle. | #17 |
 
 The wasm crate (`wasm/src`) adds one thin `#[wasm_bindgen]` wrapper per new public core function,
@@ -205,6 +208,89 @@ the `writerPublicKey` (or `adminPublicKey`) argument.
 
 ---
 
+## #46 — In-dapp monetization: payment, paywall, NFT-gating (`payment.rs`, `gating.rs`, `subscription.rs`)
+
+> **STATUS: IMPLEMENTED** (payment + paywall + NFT-gating). Subscriptions are a **clearly-marked
+> scaffold** (not faked). This is the first INBOUND economic path: a dapp deployed on DIG can EARN,
+> where before every spend was outbound. The buyer's wallet signs; nothing here signs or networks.
+
+### Payment (`payment.rs`)
+A buyer pays the dapp owner a specified amount in **XCH or any CAT (incl. DIG)**, settling to the
+owner's puzzle hash. Reuses the existing keyless patterns (standard-layer XCH spend; `Cat::spend_all`
+ring spend for CATs — the same primitives `cat.rs`/`store.rs` use).
+
+```rust
+pub fn build_xch_payment(buyer_synthetic_key, selected_coins, owner_puzzle_hash, amount, nonce, fee)
+    -> Result<PaymentResponse>;   // -> { coin_spends, receipt }
+pub fn build_cat_payment(buyer_synthetic_key, selected_cats: Vec<Cat>, owner_puzzle_hash, amount, nonce)
+    -> Result<PaymentResponse>;   // CAT ring nets to zero; carry an XCH fee with a separate coin via add_fee
+pub fn payment_nonce(request_bytes) -> Bytes32;   // sha256(dappId||resource||user) — deterministic unlock nonce
+```
+
+The owner payment coin carries memos `[owner_puzzle_hash, nonce]`: the first hints the coin to the
+owner (so their wallet sees it), the second is the paywall match key. The `nonce` ties one off-chain
+unlock request to one on-chain coin → replay-proof without any new puzzle (it is just an indexed
+CREATE_COIN memo).
+
+### Paywall — pay-to-unlock (`payment.rs`)
+A payment + a verifiable receipt the dapp/SDK checks once the spend confirms.
+
+```rust
+pub fn verify_payment_receipt(observed: &ObservedPayment, owner_puzzle_hash, min_amount,
+    asset: PaymentAsset, require_nonce: Option<Bytes32>) -> Result<(), PaywallError>;
+```
+
+The dapp issues a nonce → buyer pays via `build_*_payment` → after confirm the dapp reads the owner's
+coin (by the receipt's coin id, or by scanning the owner's hinted coins for the nonce), fills in an
+`ObservedPayment`, and calls `verify_payment_receipt`. `Ok(())` = grant; `Err(PaywallError)` explains
+exactly which gate failed (wrong recipient / underpaid / wrong asset / nonce mismatch). Pass
+`require_nonce = Some(..)` (recommended) to bind the unlock to a specific request and defeat replay.
+
+### NFT-gating (`gating.rs`) — read/verify, NOT a spend
+Prove ownership of an NFT / collection membership so a dapp can gate on it.
+
+```rust
+pub fn read_nft_ownership(parent_spend) -> Result<NftOwnershipProof, GatingError>;
+pub fn prove_nft_ownership(parent_spend, claimed_owner_ph, required_nft: Option<Bytes32>) -> Result<..>;
+pub fn prove_collection_membership(parent_spend, claimed_owner_ph, required_did) -> Result<..>;
+```
+
+`parent_spend` is the coin spend that created the NFT's CURRENT coin (the caller fetches it from a
+full node). `Nft::parse_child` reconstructs the latest `NftInfo`; the proof exposes `launcher_id`,
+`owner_puzzle_hash` (= the holder's address inner p2 hash), `attributed_did` (= `current_owner`, the
+creator/collection DID), and `nft_coin_id`. A dapp requires `owner == connected wallet` and
+optionally `attributed_did == required collection DID` / `launcher_id == a specific NFT`. The caller
+pairs the read facts with a coinset liveness check (is `nft_coin_id` still unspent) before granting.
+
+### Subscriptions — scaffold only (`subscription.rs`)
+A recurring/subscription model is **not** just a spend builder: Chia has no native recurring payment,
+so it needs a time-locked / pre-authorized **delegated-spend puzzle** (chialisp + a security review,
+the same bar that retired the hand-rolled `deploy_token`). `build_subscription_authorization` /
+`build_subscription_claim` exist with the intended `SubscriptionTerms` shape but return
+`Error::Parse("not yet implemented…")` — they do not fake a spend. **Until the puzzle ships, model
+recurring billing as a fresh one-shot payment per period** (buyer approves each renewal; paywall gates
+on the latest period's receipt).
+
+### DID-attributed mint (verify for #38)
+The DID-attributed mint primitive **already exists**: `create_did` (creator identity singleton) +
+`mint_nft`/`build_bulk_mint` with `DidAttribution { launcher_id, inner_puzzle_hash }` set the on-chain
+`TransferNft` condition attributing the NFT to the DID. #38's remaining work is *auto-composing the
+DID's acknowledging spend into the mint bundle* end-to-end (a "mint as your creator identity" toggle)
+— the building blocks are here; the orchestration is the #38 task.
+
+### wasm exports (#46)
+`buildPayment(buyerKey, selectedCoins, ownerPuzzleHash, amount, nonce, fee) -> { coinSpends, receipt }`,
+`buildCatPayment(buyerKey, selectedCats, ownerPuzzleHash, amount, nonce) -> { coinSpends, receipt }`,
+`paymentNonce(requestBytes) -> Uint8Array`,
+`verifyPaymentReceipt(observed, ownerPuzzleHash, minAmount, requiredAsset, requireNonce?) -> { ok, error? }`,
+`proveNftOwnership(parentSpend, claimedOwnerPuzzleHash, requiredNft?) -> { ok, proof?, error? }`,
+`proveCollectionMembership(parentSpend, claimedOwnerPuzzleHash, requiredDid) -> { ok, proof?, error? }`,
+`readNftOwnership(parentSpend) -> { ok, proof?, error? }`. `PaymentAsset` is `{ xch:true }` or
+`{ assetId }`; a `Cat` is `{ coin, lineageProof?, info:{ assetId, hiddenPuzzleHash?, p2PuzzleHash } }`
+(exactly `chip0002_getAssetCoins`'s shape).
+
+---
+
 ## Cross-module wiring (what the next wave consumes)
 
 Once a new `@dignetwork/chip35-dl-coin-wasm` is cut (human-gated):
@@ -217,6 +303,14 @@ Once a new `@dignetwork/chip35-dl-coin-wasm` is cut (human-gated):
 - **digstore** CLI (`digstore nft|collection|did|offer`, #35) and the asset SDK wrap the same
   exports; digstore writes the capsule + computes the byte hashes, then calls `mintNft` with the
   dig:// URN + computed hashes.
+- **#46 monetization**: **dig-sdk** (`/spend` subpath) re-exports `buildPayment`, `buildCatPayment`,
+  `paymentNonce`, `verifyPaymentReceipt`, `proveNftOwnership`, `proveCollectionMembership`,
+  `readNftOwnership`; it should add an ergonomic `Monetization`/`Paywall` helper (issue nonce → build
+  payment via the wallet → poll coinset for the owner coin → verify) so a dapp dev calls one method.
+  **hub.dig.net** (`apps/web/lib/driver.js`) wires a "revenue" view + a paywall demo onto these. A
+  dapp dev's flow: `paymentNonce` → `buildPayment` (sign via `window.chia`/Sage) → broadcast →
+  `verifyPaymentReceipt` after confirm; NFT-gating: fetch the holder's latest NFT spend from
+  `rpc.dig.net`/coinset → `proveNftOwnership`/`proveCollectionMembership`.
 
 ### Delegation (#43 Teams / #17 deploy tokens) wiring
 

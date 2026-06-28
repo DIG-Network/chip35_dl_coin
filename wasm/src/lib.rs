@@ -7,6 +7,7 @@
 use wasm_bindgen::prelude::*;
 
 mod asset_types;
+mod monetization_types;
 mod types;
 
 /// Initialise the module. Call once at startup. Installs a panic hook (when the
@@ -676,5 +677,218 @@ pub fn decode_offer(text: String) -> Result<JsValue, JsValue> {
             .map(crate::types::CoinSpend::from_native)
             .collect(),
         aggregated_signature: bundle.aggregated_signature.to_bytes().to_vec(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// In-dapp monetization wasm exports (roadmap #46): payment, paywall (pay-to-unlock), NFT-gating,
+// subscription scaffold. A dapp deployed on DIG EARNs — these are the inbound-economic primitives
+// the dig-sdk + hub consume. Thin wrappers: deserialize the JS shape, call the core builder/helper,
+// reserialize.
+// ---------------------------------------------------------------------------
+
+use crate::monetization_types::{
+    opt_bytes32 as mon_opt_bytes32, Cat as JsCat, NftOwnershipProof as JsNftOwnershipProof,
+    ObservedPayment as JsObservedPayment, PaymentAsset as JsPaymentAsset,
+    PaymentReceipt as JsPaymentReceipt,
+};
+use chip35_dl_coin::{
+    build_cat_payment as core_build_cat_payment, build_xch_payment as core_build_xch_payment,
+    payment_nonce as core_payment_nonce, prove_collection_membership as core_prove_collection,
+    prove_nft_ownership as core_prove_nft, read_nft_ownership as core_read_nft,
+    verify_payment_receipt as core_verify_receipt,
+};
+
+/// SHA-256-derive a 32-byte unlock nonce from arbitrary request bytes (`dappId||resource||user`).
+/// A dapp issues one nonce per unlock request, embeds it in the payment, and verifies it later. The
+/// dapp may instead use any random 32 bytes — this is a deterministic convenience. Returns 32 bytes.
+#[wasm_bindgen(js_name = "paymentNonce")]
+pub fn payment_nonce(request_bytes: &[u8]) -> Vec<u8> {
+    core_payment_nonce(request_bytes).to_vec()
+}
+
+/// Build the coin spends for a buyer to pay the dapp owner `amount` mojos of **XCH** (#46 payment).
+/// `selected_coins` is the buyer's XCH `Coin[]`; `nonce` is the 32-byte unlock nonce. Returns
+/// `{ coinSpends, receipt }` where `receipt` is the `PaymentReceipt` the paywall later verifies.
+#[wasm_bindgen(js_name = "buildPayment")]
+pub fn build_payment(
+    buyer_synthetic_key: &[u8],
+    selected_coins: JsValue,
+    owner_puzzle_hash: &[u8],
+    amount: u64,
+    nonce: &[u8],
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    let resp = core_build_xch_payment(
+        public_key(buyer_synthetic_key)?,
+        coins_from_js(selected_coins)?,
+        bytes32(owner_puzzle_hash)?,
+        amount,
+        bytes32(nonce)?,
+        fee,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    payment_response_to_js(&resp)
+}
+
+/// Build the coin spends for a buyer to pay the dapp owner `amount` base units of a **CAT** (incl.
+/// DIG) (#46 payment). `selected_cats` is the buyer's `Cat[]` of ONE asset id (as
+/// `chip0002_getAssetCoins` returns them); `nonce` is the 32-byte unlock nonce. The CAT ring nets to
+/// zero, so carry any XCH network fee with a separate XCH coin via `addFee` asserting the lead CAT
+/// coin id. Returns `{ coinSpends, receipt }`.
+#[wasm_bindgen(js_name = "buildCatPayment")]
+pub fn build_cat_payment(
+    buyer_synthetic_key: &[u8],
+    selected_cats: JsValue,
+    owner_puzzle_hash: &[u8],
+    amount: u64,
+    nonce: &[u8],
+) -> Result<JsValue, JsValue> {
+    let cats: Vec<JsCat> = from_js(selected_cats)?;
+    let native_cats = cats
+        .iter()
+        .map(JsCat::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let resp = core_build_cat_payment(
+        public_key(buyer_synthetic_key)?,
+        native_cats,
+        bytes32(owner_puzzle_hash)?,
+        amount,
+        bytes32(nonce)?,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    payment_response_to_js(&resp)
+}
+
+/// Serialize a core `PaymentResponse` into the JS `{ coinSpends, receipt }` shape.
+fn payment_response_to_js(resp: &chip35_dl_coin::PaymentResponse) -> Result<JsValue, JsValue> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        receipt: JsPaymentReceipt,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        receipt: JsPaymentReceipt::from_native(&resp.receipt),
+    })
+}
+
+/// Verify an observed payment unlocks a paywall (#46 pay-to-unlock): it must pay `owner_puzzle_hash`,
+/// in `required_asset`, at least `min_amount`, and (when `require_nonce` is a 32-byte value) carry
+/// that nonce. `observed` is an `ObservedPayment` the dapp filled in after reading the owner's coin;
+/// `required_asset` is a `PaymentAsset` (`{xch:true}` or `{assetId}`). Returns `{ ok, error? }` —
+/// `ok:true` grants access, otherwise `error` is the human-readable denial reason.
+#[wasm_bindgen(js_name = "verifyPaymentReceipt")]
+pub fn verify_payment_receipt(
+    observed: JsValue,
+    owner_puzzle_hash: &[u8],
+    min_amount: u64,
+    required_asset: JsValue,
+    require_nonce: Option<Vec<u8>>,
+) -> Result<JsValue, JsValue> {
+    let observed: JsObservedPayment = from_js(observed)?;
+    let asset: JsPaymentAsset = from_js(required_asset)?;
+    let nonce = mon_opt_bytes32(require_nonce)?;
+    let result = core_verify_receipt(
+        &observed.to_native()?,
+        bytes32(owner_puzzle_hash)?,
+        min_amount,
+        asset.to_native()?,
+        nonce,
+    );
+
+    #[derive(serde::Serialize)]
+    struct Out {
+        ok: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    }
+    to_js(&match result {
+        Ok(()) => Out {
+            ok: true,
+            error: None,
+        },
+        Err(e) => Out {
+            ok: false,
+            error: Some(e.to_string()),
+        },
+    })
+}
+
+/// Prove an NFT (reconstructed from `parent_spend`, the coin spend that created its current coin) is
+/// owned by `claimed_owner_puzzle_hash`, optionally gating on a specific NFT launcher id (#46 NFT-
+/// gating). `parent_spend` is the wasm `CoinSpend` shape. Returns `{ ok, proof?, error? }` — on
+/// success `proof` is the `NftOwnershipProof` (launcher id, owner, attributed DID, current coin id);
+/// the caller still confirms `proof.nftCoinId` is unspent on-chain for liveness.
+#[wasm_bindgen(js_name = "proveNftOwnership")]
+pub fn prove_nft_ownership(
+    parent_spend: JsValue,
+    claimed_owner_puzzle_hash: &[u8],
+    required_nft: Option<Vec<u8>>,
+) -> Result<JsValue, JsValue> {
+    let cs: crate::types::CoinSpend = from_js(parent_spend)?;
+    let required = mon_opt_bytes32(required_nft)?;
+    let result = core_prove_nft(
+        &cs.to_native()?,
+        bytes32(claimed_owner_puzzle_hash)?,
+        required,
+    );
+    gating_result_to_js(result)
+}
+
+/// Prove an NFT held by `claimed_owner_puzzle_hash` is a member of the collection/creator identified
+/// by `required_did` (#46 collection-gating). Returns `{ ok, proof?, error? }`.
+#[wasm_bindgen(js_name = "proveCollectionMembership")]
+pub fn prove_collection_membership(
+    parent_spend: JsValue,
+    claimed_owner_puzzle_hash: &[u8],
+    required_did: &[u8],
+) -> Result<JsValue, JsValue> {
+    let cs: crate::types::CoinSpend = from_js(parent_spend)?;
+    let result = core_prove_collection(
+        &cs.to_native()?,
+        bytes32(claimed_owner_puzzle_hash)?,
+        bytes32(required_did)?,
+    );
+    gating_result_to_js(result)
+}
+
+/// Read an NFT's ownership facts (owner, attributed DID, launcher id, current coin id) from
+/// `parent_spend` WITHOUT applying a gate — for dapps that want to decide in their own code.
+/// Returns `{ ok, proof?, error? }`.
+#[wasm_bindgen(js_name = "readNftOwnership")]
+pub fn read_nft_ownership(parent_spend: JsValue) -> Result<JsValue, JsValue> {
+    let cs: crate::types::CoinSpend = from_js(parent_spend)?;
+    gating_result_to_js(core_read_nft(&cs.to_native()?))
+}
+
+/// Serialize a gating `Result` into the JS `{ ok, proof?, error? }` shape.
+fn gating_result_to_js(
+    result: Result<chip35_dl_coin::NftOwnershipProof, chip35_dl_coin::GatingError>,
+) -> Result<JsValue, JsValue> {
+    #[derive(serde::Serialize)]
+    struct Out {
+        ok: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        proof: Option<JsNftOwnershipProof>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    }
+    to_js(&match result {
+        Ok(p) => Out {
+            ok: true,
+            proof: Some(JsNftOwnershipProof::from_native(&p)),
+            error: None,
+        },
+        Err(e) => Out {
+            ok: false,
+            proof: None,
+            error: Some(e.to_string()),
+        },
     })
 }
