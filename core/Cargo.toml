@@ -8,15 +8,17 @@ repository = "https://github.com/DIG-Network/chip35_dl_coin"
 
 [dependencies]
 chia-bls = "0.26.0"
-chia-protocol = "0.26.0"
+chia-protocol = { version = "0.26.0", features = ["serde"] }
 chia-sha2 = "0.26.0"
 chia-puzzle-types = "0.26.0"
 chia-puzzles = "0.20.1"
 chia-traits = "0.26.0"
-chia-sdk-driver = { version = "0.30.0", features = ["chip-0035", "action-layer"] }
+chia-sdk-driver = { version = "0.30.0", features = ["chip-0035", "action-layer", "offer-compression"] }
 chia-sdk-types  = { version = "0.30.0", features = ["chip-0035", "action-layer"] }
 clvm-traits = "0.26.0"
 clvmr = "0.14.0"
 thiserror = "1"
 hex = "0.4"
 hex-literal = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

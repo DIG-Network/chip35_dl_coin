@@ -113,7 +113,11 @@ cd app; npx tsc --noEmit; npm run build; cd ..
 
 ## How it works (architecture)
 
-- **`chip35-dl-coin-wasm`** exposes only the store spend builders: `mintStore`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `oracleSpend`, plus `addFee` and `spendBundleToHex` / `hexSpendBundleToCoinSpends`. It returns `CoinSpend[]` (and the updated `DataStore`) — it never signs or touches the network.
+- **`chip35-dl-coin-wasm`** exposes:
+  - **DataStore spend builders:** `mintStore`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `oracleSpend`, plus `addFee`, `digstoreOwnerHint`, `dataStoreFromSpend`, and `spendBundleToHex` / `hexSpendBundleToCoinSpends`.
+  - **Asset toolkit (roadmap #33/#34/#35/#36):** `mintNft` (NFT with dig:// + https-fallback media URIs and computed hashes), `bulkMint` + `generateItemMetadata` (collection bulk mint from a parsed traits manifest), `createDid` (creator identity), `issueCat` (fixed-supply CAT), `encodeOffer` / `decodeOffer` (offer codec), and the CHIP-0007 helpers `buildChip0007Metadata`, `validateChip0007`, `sha256`.
+
+  It returns `CoinSpend[]` (and a result summary such as the updated `DataStore`, the minted NFT/DID launcher id, or the CAT asset id) — it never signs, derives keys, or touches the network. See `DESIGN.md` for the full asset-toolkit design and the `#17` deploy-token scaffold (core-only, pending security review; intentionally not wasm-exposed).
 - The app uses **`chia-wallet-sdk-wasm`** for wallet utilities the driver omits: bech32m address decode, and uncurrying a coin's puzzle reveal to recover its synthetic public key.
 - **Sage** (over WalletConnect) provides spendable coins (`chip0002_getAssetCoins`) and signs (`chip0002_signCoinSpends`, `partial:false, auto_submit:false`).
 - **coinset.org** broadcasts (`/push_tx`) and provides confirmation/liveness reads.
