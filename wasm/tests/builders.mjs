@@ -61,6 +61,70 @@ assert.equal(hex, f.mintHex, "wasm mint bundle hex == native golden (byte-for-by
 const own = wasm.updateStoreOwnership(mint.newStore, ownerPh, [adminDp], synthKey, undefined);
 assert.ok(own.coinSpends.length > 0, "updateStoreOwnership");
 
+// ===========================================================================
+// Delegation builders (hub Teams #43 + revocable deploy tokens #17)
+// ===========================================================================
+
+// adminDelegatedPuzzleFromKey / writerDelegatedPuzzleFromKey / oracleDelegatedPuzzle
+const adminFromKey = wasm.adminDelegatedPuzzleFromKey(synthKey);
+assert.ok(adminFromKey.adminInnerPuzzleHash, "admin DP has adminInnerPuzzleHash");
+// admin DP from the synthetic key currying = the synthetic key's standard puzzle hash = ownerPh
+assert.equal(
+  Buffer.from(adminFromKey.adminInnerPuzzleHash).toString("hex"),
+  f.puzzleHashHex,
+  "admin DP tree hash == StandardArgs::curry_tree_hash(syntheticKey)"
+);
+
+const writerFromKey = wasm.writerDelegatedPuzzleFromKey(synthKey);
+assert.ok(writerFromKey.writerInnerPuzzleHash, "writer DP has writerInnerPuzzleHash");
+assert.equal(
+  Buffer.from(writerFromKey.writerInnerPuzzleHash).toString("hex"),
+  f.puzzleHashHex,
+  "writer DP shares the standard-puzzle tree hash (keyed only by the synthetic key)"
+);
+
+const oracleFromBuilder = wasm.oracleDelegatedPuzzle(ownerPh, 7n);
+assert.equal(
+  Buffer.from(oracleFromBuilder.oraclePaymentPuzzleHash).toString("hex"),
+  f.puzzleHashHex,
+  "oracle DP payment puzzle hash"
+);
+assert.equal(oracleFromBuilder.oracleFee, 7n, "oracle DP fee");
+
+// TEAMS (#43) / DEPLOY TOKEN (#17): mint owner-only, then ISSUE a writer delegate (deploy token)
+// via updateStoreOwnership, then the writer ADVANCES the root (deploy) with no owner seed.
+const teamMint = wasm.mintStore(
+  synthKey, [coin], rootHash, "team", "team", undefined, undefined, ownerPh, [], 0n
+);
+assert.equal(teamMint.newStore.delegatedPuzzles.length, 0, "team store starts owner-only");
+
+const issued = wasm.updateStoreOwnership(
+  teamMint.newStore, ownerPh, [writerFromKey], synthKey, undefined
+);
+assert.equal(issued.newStore.delegatedPuzzles.length, 1, "deploy token issued (writer delegate)");
+assert.ok(
+  issued.newStore.delegatedPuzzles[0].writerInnerPuzzleHash,
+  "issued delegate is a writer"
+);
+
+// The writer (deploy key) advances the root WITHOUT the owner seed → writerPublicKey arg.
+const deployed = wasm.updateStoreMetadata(
+  issued.newStore, hexToBytes("09".repeat(32)), undefined, undefined, undefined, undefined,
+  undefined, undefined, synthKey // writerPublicKey
+);
+assert.ok(deployed.coinSpends.length > 0, "writer advances root (deploy) without owner seed");
+assert.equal(
+  Buffer.from(deployed.newStore.metadata.rootHash).toString("hex"),
+  "09".repeat(32),
+  "deploy advanced the store to the new capsule root"
+);
+
+// REVOKE: owner replaces the delegated set, dropping the writer.
+const revoked = wasm.updateStoreOwnership(
+  deployed.newStore, ownerPh, [], synthKey, undefined
+);
+assert.equal(revoked.newStore.delegatedPuzzles.length, 0, "deploy token revoked");
+
 // ORACLE SPEND — use a larger coin so amount >= oracleFee + fee + 1
 const oracleCoin = {
   parentCoinInfo: hexToBytes(f.parentCoinInfoHex),

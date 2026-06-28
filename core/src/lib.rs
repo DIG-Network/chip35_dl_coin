@@ -7,7 +7,6 @@
 
 mod cat;
 mod collection;
-mod deploy_token;
 mod did;
 mod error;
 mod metadata;
@@ -26,9 +25,10 @@ pub use chia_sdk_driver::{
 
 pub use error::{Error, WalletError};
 pub use store::{
-    add_fee, datastore_from_spend, digstore_owner_hint, hex_spend_bundle_to_coin_spends,
-    melt_store, mint_store, oracle_spend, spend_bundle_to_hex, update_store_metadata,
-    update_store_ownership, DataStoreInnerSpend, DATASTORE_LAUNCHER_HINT,
+    add_fee, admin_delegated_puzzle_from_key, datastore_from_spend, digstore_owner_hint,
+    hex_spend_bundle_to_coin_spends, melt_store, mint_store, oracle_delegated_puzzle, oracle_spend,
+    spend_bundle_to_hex, update_store_metadata, update_store_ownership,
+    writer_delegated_puzzle_from_key, DataStoreInnerSpend, DATASTORE_LAUNCHER_HINT,
     DIGSTORE_OWNER_HINT_DOMAIN,
 };
 pub use types::SuccessResponse;
@@ -47,7 +47,11 @@ pub use metadata::{
 pub use nft::{mint_nft, DidAttribution, NftMediaMetadata, NftMintParams, NftMintResponse};
 pub use offer::{decode_offer, encode_offer};
 
-// Deploy-token delegation (roadmap #17) — SCAFFOLD pending security review (not wasm-exposed).
-pub use deploy_token::{
-    build_deploy_token, deploy_token_advance_root, DeployTokenTerms, SCAFFOLD_PENDING_REVIEW,
-};
+// Deploy-token delegation (roadmap #17): a deploy token is a **revocable writer delegate**, not a
+// bespoke puzzle. The prior hand-rolled scaffold (`deploy_token.rs`) is superseded — there is no
+// special deploy-token type. To issue one, the owner adds [`writer_delegated_puzzle_from_key`] for
+// the CI deploy key to the store's delegated-puzzle set via [`update_store_ownership`]; the deploy
+// key then advances the root with [`update_store_metadata`] under [`DataStoreInnerSpend::Writer`]
+// (a root advance IS a metadata update — no owner seed required). To revoke, the owner (or an admin
+// delegate) replaces the delegated-puzzle set, dropping that writer. An on-chain DIG spend-cap that
+// would further bound a deploy token is the only non-native extra and is future work.

@@ -1,9 +1,9 @@
-# chip35_dl_coin — Asset toolkit & deploy-token design
+# chip35_dl_coin — Asset toolkit & DataStore delegation design
 
 This document covers the spend/primitive layer this crate adds for the DIG developer-platform
-NFT/asset toolkit (roadmap Wave 3: #33, #34, #35, #36) and the **scaffold** for scoped deploy
-tokens (#17). It is the design-of-record for those features and the contract they expose to the
-rest of the ecosystem.
+NFT/asset toolkit (roadmap Wave 3: #33, #34, #35, #36) and the **DataStore delegation** builders
+that back hub Teams (#43) and revocable deploy tokens (#17). It is the design-of-record for those
+features and the contract they expose to the rest of the ecosystem.
 
 > **Contract reminder (SYSTEM.md / CLAUDE.md):** `chip35_dl_coin` is the *canonical* place to
 > construct spend bundles. On-chain spend types live here; a new
@@ -22,14 +22,14 @@ builders the toolkit needs and to expose them at the wasm boundary with a stable
 
 | Module | Purpose | Roadmap |
 |---|---|---|
-| `store.rs` | Existing CHIP-0035 DataStore builders (mint/update/melt/oracle/addFee/serialization). Unchanged. | — |
+| `store.rs` | CHIP-0035 DataStore builders (mint/update/melt/oracle/addFee/serialization) PLUS the delegation builders (`admin`/`writer`/`oracle` `delegated_puzzle_from_key`) for hub Teams + revocable deploy tokens. | #43, #17 |
 | `metadata.rs` | CHIP-0007 metadata builder + validator. Generates valid CHIP-0007 JSON, computes data/metadata/license hashes from bytes, validates URI↔hash agreement + schema. | #36 |
 | `nft.rs` | Single NFT mint (incl. the dig://-capsule media path) + DID-attributed transfer condition. | #33 |
 | `collection.rs` | CHIP-0007 collection model + per-item metadata generation from a traits manifest + bulk mint via intermediate launchers. | #34 |
 | `did.rs` | DID (creator identity) creation builder. | #35 |
 | `cat.rs` | CAT issuance builder. | #35 |
 | `offer.rs` | Offer encode/decode (canonical bech32-ish `offer1...` text ↔ spend bundle). | #35 |
-| `deploy_token.rs` | **SCAFFOLD** — store-bound, spend-capped, revocable deploy-token delegation puzzle. Design + interface + failing tests only; on-chain auth pending review. | #17 |
+| ~~`deploy_token.rs`~~ | **REMOVED** — the bespoke scaffold is superseded. A deploy token is a **revocable writer delegate** (see `store.rs`); there is no separate puzzle. | #17 |
 
 The wasm crate (`wasm/src`) adds one thin `#[wasm_bindgen]` wrapper per new public core function,
 reusing the existing serde boundary helpers in `wasm/src/types.rs`.
@@ -135,69 +135,73 @@ offer **codec** (encode/decode) reachable from wasm and defers offer *constructi
 
 ---
 
-## #17 — Scoped deploy-token delegation puzzle (SCAFFOLD — pending review)
+## #43 / #17 — DataStore delegation: Teams + revocable deploy tokens (`store.rs`)
 
-> **STATUS: SCAFFOLD.** This is a security-critical on-chain authorization puzzle. The design,
-> Rust interface, and failing tests below describe the intended behavior. The CLVM puzzle itself
-> and the spend-builder body are intentionally **not** implemented here — they require security
-> review before any real authorization code is written. The tests are `#[ignore]`d with a clear
-> "scaffold pending review" reason so they document intent without gating CI green.
+> **STATUS: IMPLEMENTED.** The prior `deploy_token.rs` scaffold (a bespoke curried puzzle pending
+> security review) is **superseded and removed**. There is no special deploy-token puzzle: the
+> CHIP-0035 DataStore delegation layer already provides the exact least-privilege primitive, so we
+> simply expose its builders. No new chialisp — `chia-sdk-driver` 0.30 (chip-0035) ships the
+> `DelegatedPuzzle` + DataStore delegation layer; this crate exposes the builders that drive it,
+> mirroring `DataLayer-Driver`'s shapes byte-for-byte.
 
-**Problem.** Auto-deploy from CI (roadmap #7) needs to advance a store's on-chain root **without**
-shipping the funded master seed into CI. A leaked seed = total loss of the store *and* the wallet.
-We need a credential that is (a) bound to ONE store, (b) capped in how much DIG it can spend, (c)
-expirable, and (d) revocable by the owner — least privilege for a deploy bot.
+**The model.** A DataStore singleton carries a list of `DelegatedPuzzle`s beside its owner. Each
+grants one role:
 
-**Model.** A *deploy token* is a delegated authority curried into a puzzle that the store owner
-authorizes once (on-chain) and a CI key then uses to sign root-advance spends. It is conceptually a
-constrained sibling of the existing `DelegatedPuzzle::Writer` (writers can already update metadata),
-hardened with three on-chain-enforced limits:
+- **Admin** — update the store AND change delegation (add/remove admins/writers). A hub Teams admin.
+- **Writer** — create new generations (advance the root = deploy a new capsule) but NOT change
+  delegation or transfer ownership. **A revocable deploy token IS a writer delegate** (#17); a hub
+  Teams writer (#43).
+- **Oracle** — anyone may spend the store for a fixed fee (keyed by a payment puzzle hash, not a
+  key — no signer).
 
-1. **Store binding.** The puzzle is curried with the store `launcher_id`; it can only authorize a
-   spend of that singleton. A token for store A cannot touch store B.
-2. **Spend cap.** Curried with a max cumulative DIG amount (and/or a max number of root advances).
-   Each advance asserts the running total stays under the cap. (Cap accounting across advances needs
-   a small state coin or an announced counter — design open, flagged for review.)
-3. **Expiry.** Curried with an `ASSERT_BEFORE_SECONDS_ABSOLUTE` so the token self-expires.
-4. **Revocation.** The owner can melt/replace the delegation (re-key the store's delegated-puzzle
-   set), invalidating the token immediately — reusing the existing `update_store_ownership`
-   delegated-puzzle replacement path.
-
-**Interface (scaffold).**
+**Builders (core/src/store.rs)** — mirror DataLayer-Driver `src/lib.rs`:
 ```rust
-pub struct DeployTokenTerms {
-    pub store_launcher_id: Bytes32,
-    pub authorized_public_key: PublicKey, // the CI deploy key
-    pub max_total_mojos: u64,             // spend cap
-    pub max_advances: u32,                // optional advance count cap
-    pub expires_at_seconds: u64,          // absolute unix seconds
-}
-
-/// SCAFFOLD: returns the delegated-puzzle entry the owner adds to the store so the deploy key can
-/// advance the root within the curried limits. NOT YET IMPLEMENTED — pending security review.
-pub fn build_deploy_token(terms: &DeployTokenTerms) -> Result<DelegatedPuzzle, WalletError>;
-
-/// SCAFFOLD: build the root-advance spend signed by the deploy key, asserting the cap/expiry.
-/// NOT YET IMPLEMENTED — pending security review.
-pub fn deploy_token_advance_root(
-    datastore: DataStore,
-    new_root_hash: Bytes32,
-    terms: &DeployTokenTerms,
-) -> Result<SuccessResponse, WalletError>;
+pub fn admin_delegated_puzzle_from_key(synthetic_key: &PublicKey) -> DelegatedPuzzle;  // Admin(curry_tree_hash(key))
+pub fn writer_delegated_puzzle_from_key(synthetic_key: &PublicKey) -> DelegatedPuzzle; // Writer(curry_tree_hash(key))
+pub fn oracle_delegated_puzzle(oracle_puzzle_hash: Bytes32, oracle_fee: u64) -> DelegatedPuzzle; // Oracle(ph, fee)
 ```
+Admin/Writer curry only the standard puzzle of the synthetic key, so the same key authorizes
+whichever role the owner granted it; the role lives in the store's delegated-puzzle set, not the key.
 
-**Open questions for review (do not implement before resolving):**
-- Cap accounting: stateful (counter coin) vs. stateless (per-spend cap only)? A pure per-spend cap
-  is simpler and revocable but does not bound *cumulative* spend; a counter coin bounds cumulative
-  but adds a coin to every advance. Recommend starting stateless (per-advance cap + expiry +
-  revocation) and adding cumulative accounting only if required.
-- Does the deploy token reuse the writer-filter puzzle (metadata-only, which is exactly a root
-  advance) curried with the extra asserts, or a new puzzle? Reusing writer-filter keeps the audited
-  surface small.
-- Revocation UX: melt-and-recreate the delegated set vs. a dedicated revocation list.
+**How delegates are carried (no new spend builders needed — these already existed):**
 
-Until reviewed, the wasm boundary exposes **no** deploy-token functions — the scaffold is core-only
-so nothing downstream can accidentally depend on unreviewed auth code.
+- **Mint with delegates** — `mint_store(.., delegated_puzzles: Vec<DelegatedPuzzle>, ..)`: launch a
+  store with admins/writers/oracle from the start.
+- **Add/remove delegates** — `update_store_ownership(datastore, new_owner_ph, new_delegated_puzzles,
+  inner_spend)`: replace the delegated-puzzle set. This is the Teams **add-member** and the deploy-
+  token **issue + revoke** operation. Authorizable by `Owner` (full) or `Admin` (delegation change
+  via `UpdateDataStoreMerkleRoot`); a `Writer` is rejected (`Error::Permission`).
+- **Delegate-signed root advance (deploy)** — `update_store_metadata(datastore, new_root_hash, ..,
+  inner_spend)` with `DataStoreInnerSpend::Writer(deploy_key)` (or `Admin`): the delegate advances
+  the root **without the owner seed**. A root advance IS a metadata update; the `WriterLayer` is the
+  metadata-only filter. This is the deploy-token / team-member commit.
+
+**`DataStoreInnerSpend`** selects the authorizing role for an update: `Owner(pk)` /`Admin(pk)`/
+`Writer(pk)`. The permission matrix is enforced in `update_store_with_conditions`:
+
+| Role | advance root (metadata) | change delegation / ownership |
+|---|---|---|
+| Owner | ✅ | ✅ |
+| Admin | ✅ | ✅ delegation (not outright transfer) |
+| Writer | ✅ | ❌ `Error::Permission` |
+
+**Deploy-token lifecycle (#17)** = the writer-delegate lifecycle:
+1. **Issue** — owner adds `writer_delegated_puzzle_from_key(ci_deploy_key)` via `update_store_ownership`.
+2. **Deploy** — CI deploy key calls `update_store_metadata(.., Writer(ci_deploy_key))` (no owner seed).
+3. **Revoke** — owner/admin replaces the delegated set, dropping that writer; the key can no longer advance.
+
+**Future work (the only non-native extra):** an on-chain **DIG spend cap** bounding cumulative spend
+per deploy token (a curried max + counter coin/announced total). Native CHIP-0035 delegation gives
+store-binding (the puzzle is part of one store's set), least privilege (writer = metadata-only), and
+owner revocation for free; a spend cap is the one thing the native layer does not enforce and is
+deferred. It does NOT block Teams or deploy tokens — those ship on the native primitive above.
+
+**wasm exports** — `adminDelegatedPuzzleFromKey(syntheticKey) -> DelegatedPuzzle`,
+`writerDelegatedPuzzleFromKey(syntheticKey) -> DelegatedPuzzle`,
+`oracleDelegatedPuzzle(oraclePuzzleHash, oracleFee) -> DelegatedPuzzle`. The returned `DelegatedPuzzle`
+drops straight into `mintStore`'s `delegatedPuzzles` and `updateStoreOwnership`'s
+`newDelegatedPuzzles`. The delegate-signed root advance uses the existing `updateStoreMetadata` with
+the `writerPublicKey` (or `adminPublicKey`) argument.
 
 ---
 
@@ -213,3 +217,22 @@ Once a new `@dignetwork/chip35-dl-coin-wasm` is cut (human-gated):
 - **digstore** CLI (`digstore nft|collection|did|offer`, #35) and the asset SDK wrap the same
   exports; digstore writes the capsule + computes the byte hashes, then calls `mintNft` with the
   dig:// URN + computed hashes.
+
+### Delegation (#43 Teams / #17 deploy tokens) wiring
+
+The new delegation exports — `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`,
+`oracleDelegatedPuzzle` — plus the already-delegation-aware `mintStore` / `updateStoreOwnership` /
+`updateStoreMetadata` are what the next wave consumes:
+
+- **hub.dig.net Teams (#43)** (`apps/web/lib/driver.js`): to add a team member, derive their
+  delegate with `writerDelegatedPuzzleFromKey` (writer) or `adminDelegatedPuzzleFromKey` (admin),
+  append it to the store's delegated-puzzle set, and call `updateStoreOwnership(store, ownerPh,
+  newDelegatedPuzzles, ownerPublicKey)` (signed by the owner, or `adminPublicKey` for an admin
+  managing the set). Remove a member by replacing the set without their delegate.
+- **digstore deploy tokens (#17)** (CI auto-deploy, roadmap #7/#23): the owner issues a deploy token
+  by adding `writerDelegatedPuzzleFromKey(ciDeployKey)` via `updateStoreOwnership`. CI then advances
+  the root with `updateStoreMetadata(store, newRoot, .., writerPublicKey=ciDeployKey)` — no owner
+  seed in CI. Revoke by replacing the delegated set. (The §21 remote's first-push publisher key is
+  the natural deploy key to authorize.)
+- **dig-sdk** (`/spend` subpath) re-exports the three new delegation builders alongside the asset
+  exports so integrators wire Teams/deploy-tokens without re-implementing the spend layer.

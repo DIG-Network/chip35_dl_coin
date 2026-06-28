@@ -67,6 +67,59 @@ pub fn digstore_owner_hint(owner_puzzle_hash: Bytes32) -> Bytes32 {
     Bytes32::new(h.finalize())
 }
 
+// ---------------------------------------------------------------------------
+// Delegated-puzzle constructors (the on-chain primitive for hub Teams #43 and
+// revocable deploy tokens #17).
+//
+// A DataStore singleton carries a list of `DelegatedPuzzle`s beside its owner.
+// Each grants a delegate one of three roles:
+//   - Admin  — update the store AND change delegation (add/remove admins/writers).
+//   - Writer — create new generations (advance the root = deploy) but NOT change
+//              delegation. A revocable deploy token (#17) IS a writer delegate.
+//   - Oracle — anyone may spend for a fixed fee.
+//
+// The owner grants/revokes these by replacing the delegated-puzzle set via
+// `update_store_ownership` (the Teams add-member / deploy-token issue+revoke op).
+// These three builders mirror DataLayer-Driver's shapes byte-for-byte so a store
+// minted here is interchangeable with one minted by DataLayer-Driver.
+// ---------------------------------------------------------------------------
+
+/// Build the **Admin** delegated puzzle for a synthetic key (hub Teams #43 — a team admin).
+///
+/// An admin delegate may update the store's metadata/root AND change the delegated-puzzle set
+/// (add/remove admins and writers — i.e. revoke a deploy token), but cannot transfer ownership
+/// outright. The puzzle is curried only with the standard puzzle of `synthetic_key`
+/// (`StandardArgs::curry_tree_hash`), so the same key authorizes whatever role the owner granted it.
+///
+/// Mirrors DataLayer-Driver's `admin_delegated_puzzle_from_key`.
+pub fn admin_delegated_puzzle_from_key(synthetic_key: &PublicKey) -> DelegatedPuzzle {
+    DelegatedPuzzle::Admin(StandardArgs::curry_tree_hash(*synthetic_key))
+}
+
+/// Build the **Writer** delegated puzzle for a synthetic key (a revocable deploy token #17 / a
+/// hub Teams writer #43).
+///
+/// A writer delegate may create new store generations — advance the root, i.e. DEPLOY a new
+/// capsule — but may NOT change the delegated-puzzle set or transfer ownership. This is exactly the
+/// least-privilege credential a CI deploy bot or a team member needs: it can deploy but can never
+/// grant itself more authority. A **deploy token is a writer delegate**; the owner revokes it by
+/// replacing the delegated-puzzle set (see [`update_store_ownership`]). The on-chain DIG spend-cap
+/// that would further bound a deploy token is the only non-native extra and is future work.
+///
+/// Mirrors DataLayer-Driver's `writer_delegated_puzzle_from_key`.
+pub fn writer_delegated_puzzle_from_key(synthetic_key: &PublicKey) -> DelegatedPuzzle {
+    DelegatedPuzzle::Writer(StandardArgs::curry_tree_hash(*synthetic_key))
+}
+
+/// Build the **Oracle** delegated puzzle: anyone may spend the store for the fixed `oracle_fee`,
+/// paid to `oracle_puzzle_hash`. Unlike admin/writer it is keyed by a payment puzzle hash, not a
+/// public key — there is no signer; the fee is the gate.
+///
+/// Mirrors DataLayer-Driver's `oracle_delegated_puzzle`.
+pub fn oracle_delegated_puzzle(oracle_puzzle_hash: Bytes32, oracle_fee: u64) -> DelegatedPuzzle {
+    DelegatedPuzzle::Oracle(oracle_puzzle_hash, oracle_fee)
+}
+
 /// Build the spend bundle that LAUNCHES a new DataLayer store singleton.
 ///
 /// Spends the minter's `selected_coins` (the first is the lead coin; the rest assert concurrent
