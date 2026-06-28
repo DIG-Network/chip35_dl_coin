@@ -78,4 +78,123 @@ assert.ok(oracle.coinSpends.length > 0, "oracleSpend");
 const fee = wasm.addFee(synthKey, [coin], [new Uint8Array(32).fill(5)], 1n);
 assert.ok(Array.isArray(fee) && fee.length > 0, "addFee returns coin spends");
 
+// ===========================================================================
+// Asset toolkit exports (roadmap #33/#34/#35/#36)
+// ===========================================================================
+
+// --- #36: sha256 + CHIP-0007 metadata builder + validator ---
+const dataBytes = Buffer.from("the real PNG bytes in a DIG capsule");
+const dataHash = wasm.sha256(dataBytes);
+assert.equal(dataHash.length, 32, "sha256 returns 32 bytes");
+
+const built = wasm.buildChip0007Metadata({
+  name: "DIG Punk #1",
+  description: "first",
+  attributes: [{ traitType: "Background", value: "Blue" }],
+});
+assert.equal(typeof built.json, "string", "metadata json string");
+assert.ok(JSON.parse(built.json).format === "CHIP-0007", "format defaulted to CHIP-0007");
+assert.equal(built.metadataHash.length, 32, "metadataHash 32 bytes");
+// metadataHash == sha256(json) (reproducible)
+assert.equal(
+  Buffer.from(built.metadataHash).toString("hex"),
+  Buffer.from(wasm.sha256(Buffer.from(built.json))).toString("hex"),
+  "metadataHash == sha256(canonical json)"
+);
+
+// validate: matching bytes pass, mismatched fail
+const okV = wasm.validateChip0007({ name: "x" }, { dataBytes, dataHash });
+assert.equal(okV.ok, true, "validate passes for matching data hash");
+const badV = wasm.validateChip0007({ name: "x" }, { dataBytes, dataHash: new Uint8Array(32) });
+assert.equal(badV.ok, false, "validate fails for mismatched data hash");
+assert.ok(badV.errors.length > 0, "validate reports an error");
+
+// --- #33: mint an NFT with dig:// + https fallback URIs and computed hashes ---
+const nftParams = {
+  metadata: {
+    dataUris: [
+      "dig://urn:dig:chia:store:root/art.png",
+      "https://gateway.dig.net/store/root/art.png",
+    ],
+    dataHash,
+    metadataUris: ["dig://urn:dig:chia:store:root/metadata.json"],
+    metadataHash: built.metadataHash,
+    licenseUris: [],
+    editionNumber: 1n,
+    editionTotal: 1n,
+  },
+  p2PuzzleHash: ownerPh,
+  royaltyPuzzleHash: ownerPh,
+  royaltyBasisPoints: 300,
+};
+const nft = wasm.mintNft(synthKey, [coin], nftParams, 0n);
+assert.ok(nft.coinSpends.length > 0, "mintNft coinSpends");
+assert.equal(nft.launcherId.length, 32, "mintNft launcherId 32 bytes");
+
+// determinism
+const nft2 = wasm.mintNft(synthKey, [coin], nftParams, 0n);
+const nh1 = wasm.spendBundleToHex({ coinSpends: nft.coinSpends, aggregatedSignature: identitySig });
+const nh2 = wasm.spendBundleToHex({ coinSpends: nft2.coinSpends, aggregatedSignature: identitySig });
+assert.equal(nh1, nh2, "mintNft deterministic");
+
+// --- #35: createDid ---
+const did = wasm.createDid(synthKey, [coin], 0n);
+assert.ok(did.coinSpends.length > 0, "createDid coinSpends");
+assert.equal(did.launcherId.length, 32, "did launcherId 32 bytes");
+assert.equal(did.innerPuzzleHash.length, 32, "did innerPuzzleHash 32 bytes");
+
+// --- #35: issueCat ---
+const catCoin = { parentCoinInfo: hexToBytes(f.parentCoinInfoHex), puzzleHash: ownerPh, amount: 1000n };
+const cat = wasm.issueCat(synthKey, [catCoin], 1000n, 0n);
+assert.ok(cat.coinSpends.length > 0, "issueCat coinSpends");
+assert.equal(cat.assetId.length, 32, "cat assetId 32 bytes");
+
+// --- #35: offer encode/decode roundtrip ---
+const offerText = wasm.encodeOffer({ coinSpends: nft.coinSpends, aggregatedSignature: identitySig });
+assert.ok(offerText.startsWith("offer1"), "offer text starts with offer1");
+const offerBack = wasm.decodeOffer(offerText);
+assert.equal(offerBack.coinSpends.length, nft.coinSpends.length, "offer decode roundtrip");
+
+// --- #34: generateItemMetadata + bulkMint ---
+const collection = {
+  id: "col-1",
+  name: "DIG Punks",
+  attributes: [{ traitType: "website", value: "https://dig.net" }],
+  royaltyPuzzleHash: ownerPh,
+  royaltyBasisPoints: 420,
+};
+const manifest = [0, 1].map((i) => ({
+  name: `DIG Punk #${i + 1}`,
+  description: "gen",
+  attributes: [{ traitType: "Index", value: String(i) }],
+  media: {
+    dataUris: [`dig://urn:dig:chia:store:root/item${i}.png`],
+    dataHash: wasm.sha256(Buffer.from(`bytes-${i}`)),
+    metadataUris: [`dig://urn:dig:chia:store:root/item${i}.json`],
+    metadataHash: wasm.sha256(Buffer.from(`meta-${i}`)),
+    licenseUris: [],
+  },
+}));
+const docs = wasm.generateItemMetadata(collection, manifest);
+assert.equal(docs.length, 2, "two item docs");
+assert.equal(docs[0].seriesNumber, 1n, "series number 1-based");
+assert.equal(docs[1].seriesTotal, 2n, "series total");
+assert.equal(docs[0].collection.id, "col-1", "collection block embedded");
+
+// bulkMint needs the DID's coin + proof; use the just-created DID's coin (eve proof).
+const didForMint = {
+  didCoin: did.didCoin,
+  proof: { eveProof: { parentParentCoinInfo: did.didCoin.parentCoinInfo, parentAmount: did.didCoin.amount } },
+  launcherId: did.launcherId,
+  innerPuzzleHash: did.innerPuzzleHash,
+};
+const bulk = wasm.bulkMint(synthKey, didForMint, collection, manifest, ownerPh);
+assert.ok(bulk.coinSpends.length > 0, "bulkMint coinSpends");
+assert.equal(bulk.launcherIds.length, 2, "bulkMint one launcher id per item");
+assert.notEqual(
+  Buffer.from(bulk.launcherIds[0]).toString("hex"),
+  Buffer.from(bulk.launcherIds[1]).toString("hex"),
+  "bulk minted items are distinct"
+);
+
 console.log("All chip35-dl-coin WASM builder checks passed.");
