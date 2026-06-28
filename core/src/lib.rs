@@ -9,10 +9,13 @@ mod cat;
 mod collection;
 mod did;
 mod error;
+mod gating;
 mod metadata;
 mod nft;
 mod offer;
+mod payment;
 mod store;
+mod subscription;
 mod types;
 
 // Re-export the chia primitives consumers/bindings need.
@@ -46,6 +49,24 @@ pub use metadata::{
 };
 pub use nft::{mint_nft, DidAttribution, NftMediaMetadata, NftMintParams, NftMintResponse};
 pub use offer::{decode_offer, encode_offer};
+
+// In-dapp monetization (roadmap #46): payment, paywall (pay-to-unlock), NFT-gating, subscription
+// scaffold. The dapp deployed on DIG EARNs — these are the inbound-economic primitives.
+pub use gating::{
+    prove_collection_membership, prove_nft_ownership, read_nft_ownership, GatingError,
+    NftOwnershipProof,
+};
+pub use payment::{
+    build_cat_payment, build_xch_payment, payment_nonce, verify_payment_receipt, ObservedPayment,
+    PaymentAsset, PaymentReceipt, PaymentResponse, PaywallError,
+};
+pub use subscription::{
+    build_subscription_authorization, build_subscription_claim, SubscriptionTerms,
+};
+
+// Re-export the Cat primitive (consumed by `build_cat_payment`'s caller to construct the buyer's CAT
+// coins, and by the wasm boundary).
+pub use chia_sdk_driver::{Cat, CatInfo};
 
 // Deploy-token delegation (roadmap #17): a deploy token is a **revocable writer delegate**, not a
 // bespoke puzzle. The prior hand-rolled scaffold (`deploy_token.rs`) is superseded — there is no
