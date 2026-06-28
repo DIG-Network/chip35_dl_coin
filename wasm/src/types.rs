@@ -220,7 +220,7 @@ pub struct DelegatedPuzzle {
     pub oracle_fee: Option<u64>,
 }
 
-mod serde_bytes_opt {
+pub mod serde_bytes_opt {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(v: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
