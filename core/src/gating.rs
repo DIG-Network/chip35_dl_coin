@@ -50,6 +50,21 @@ pub enum GatingError {
     WrongNft { required: Bytes32, got: Bytes32 },
 }
 
+impl GatingError {
+    /// A stable, machine-readable `UPPER_SNAKE` code a dapp/agent can branch on instead of
+    /// string-matching the human [`Display`] message. Part of the public contract (changing one is a
+    /// breaking change); surfaced as the `code` field of the `{ ok:false, code, error }` result the
+    /// wasm gating helpers return.
+    pub fn code(&self) -> &'static str {
+        match self {
+            GatingError::NotAnNft => "NOT_AN_NFT",
+            GatingError::WrongOwner { .. } => "WRONG_OWNER",
+            GatingError::WrongCollection { .. } => "WRONG_COLLECTION",
+            GatingError::WrongNft { .. } => "WRONG_NFT",
+        }
+    }
+}
+
 impl core::fmt::Display for GatingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
