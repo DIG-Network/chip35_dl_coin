@@ -10,7 +10,7 @@ use chip35_dl_coin::{
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 
-use crate::types::{bytes32, serde_bytes_opt, Coin, LineageProof};
+use crate::types::{bytes32, js_err, serde_bytes_opt, Coin, LineageProof};
 
 /// JS shape of a payment asset: `{ xch: true }` for XCH, or `{ assetId: Uint8Array }` for a CAT.
 /// Exactly one is set. Represented as a struct (not an enum) so the JS object is ergonomic.
@@ -28,7 +28,8 @@ impl PaymentAsset {
         match (&self.asset_id, self.xch) {
             (Some(id), _) => Ok(RustPaymentAsset::Cat(bytes32(id)?)),
             (None, true) => Ok(RustPaymentAsset::Xch),
-            (None, false) => Err(JsValue::from_str(
+            (None, false) => Err(js_err(
+                "INVALID_ARGUMENT",
                 "payment asset must set either xch:true or assetId",
             )),
         }

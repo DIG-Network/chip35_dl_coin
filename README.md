@@ -118,8 +118,25 @@ cd app; npx tsc --noEmit; npm run build; cd ..
   - **DataStore delegation (hub Teams #43 + revocable deploy tokens #17):** `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle` — build the delegate entry to add to a store's delegated-puzzle set (via `mintStore`/`updateStoreOwnership`). An **admin** updates the store + changes delegation; a **writer** advances the root (deploy) but cannot change delegation — a **deploy token is a revocable writer key**; an **oracle** lets anyone spend for a fixed fee. The delegate advances the root via `updateStoreMetadata` with the `writerPublicKey`/`adminPublicKey` argument (no owner seed).
   - **Asset toolkit (roadmap #33/#34/#35/#36):** `mintNft` (NFT with dig:// + https-fallback media URIs and computed hashes), `bulkMint` + `generateItemMetadata` (collection bulk mint from a parsed traits manifest), `createDid` (creator identity), `issueCat` (fixed-supply CAT), `encodeOffer` / `decodeOffer` (offer codec), and the CHIP-0007 helpers `buildChip0007Metadata`, `validateChip0007`, `sha256`.
   - **In-dapp monetization (roadmap #46) — a dapp deployed on DIG can EARN:** `buildPayment` / `buildCatPayment` (a buyer pays the dapp owner in XCH or any CAT incl. DIG, settling to the owner's address), `verifyPaymentReceipt` (paywall / pay-to-unlock: verify a confirmed payment of ≥ amount to the owner, with a replay-proof nonce) + `paymentNonce`, and the NFT-gating reads `proveNftOwnership` / `proveCollectionMembership` / `readNftOwnership` (prove a wallet holds an NFT / a collection member — read/verify, not a spend). Recurring **subscriptions** are scaffolded (clear TODO; need a time-locked/delegated puzzle) — until then model recurring billing as one payment per period.
+  - **Runtime self-description (agent-friendly):** `version()` returns the package version string (= the npm package version), and `capabilities()` returns a machine-readable descriptor `{ name, version, builders, errorCodes }` — the full builder catalogue + the stable error-code list — so a consumer or agent can introspect the loaded surface at runtime with zero out-of-band knowledge.
 
   It returns `CoinSpend[]` (and a result summary such as the updated `DataStore`, the minted NFT/DID launcher id, or the CAT asset id) — it never signs, derives keys, or touches the network. See `DESIGN.md` for the full asset-toolkit + delegation design.
+
+### Typed exports + the error-code contract (agent-friendly)
+
+- **Real TypeScript types.** The published `.d.ts` types every builder's inputs/outputs with concrete interfaces (`Coin`, `CoinSpend`, `DataStore`, `SuccessResponse`, `NftMintParams`, `PaymentReceipt`, `NftOwnershipProof`, `Capabilities`, …) instead of `any`, including discriminated unions for the "exactly one of" shapes: `Proof` (`lineageProof` | `eveProof`), `DelegatedPuzzle` (admin | writer | oracle), and `PaymentAsset` (`{ xch:true }` | `{ assetId }`). Encoding rules: 32/48/96-byte hashes/keys/signatures are `Uint8Array` (raw bytes, not hex); `u64`/amounts are `bigint`; keys are `camelCase`.
+- **Stable machine error codes.** Every failure carries a stable `UPPER_SNAKE` code an automated caller branches on — never parse the human message. A **throwing** export rejects with a structured `ChipError` object `{ code, message }`; the **result-shaped** helpers carry the same `code` as a field: `verifyPaymentReceipt` → `{ ok, code?, error? }` (a `PaywallError` code on denial), and the gating reads → `{ ok, proof?, code?, error? }` (a `GatingError` code on failure). The full catalogue (`ChipErrorCode`) is in the `.d.ts` and discoverable at runtime via `capabilities().errorCodes`:
+
+  | Code | Where it comes from |
+  |---|---|
+  | `INVALID_ARGUMENT` | a wasm argument is the wrong length/shape (bad key, non-32-byte hash, missing "exactly one of" selector) |
+  | `SERDE_ERROR` | a JS value failed to (de)serialize at the boundary |
+  | `DRIVER_ERROR` | the underlying chia driver failed to construct the spend |
+  | `PARSE_ERROR` | the builder rejected its inputs (e.g. empty coin selection, insufficient funds) |
+  | `PERMISSION_DENIED` | the puzzle can't perform the requested action |
+  | `METADATA_ERROR` | CHIP-0007 metadata failed schema validation / serialization |
+  | `NOT_AN_NFT` · `WRONG_OWNER` · `WRONG_COLLECTION` · `WRONG_NFT` | NFT-gating denial (`GatingError`) |
+  | `WRONG_RECIPIENT` · `INSUFFICIENT_AMOUNT` · `WRONG_ASSET` · `NONCE_MISMATCH` | paywall denial (`PaywallError`) |
 - The app uses **`chia-wallet-sdk-wasm`** for wallet utilities the driver omits: bech32m address decode, and uncurrying a coin's puzzle reveal to recover its synthetic public key.
 - **Sage** (over WalletConnect) provides spendable coins (`chip0002_getAssetCoins`) and signs (`chip0002_signCoinSpends`, `partial:false, auto_submit:false`).
 - **coinset.org** broadcasts (`/push_tx`) and provides confirmation/liveness reads.

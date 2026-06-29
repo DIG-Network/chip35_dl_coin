@@ -102,11 +102,14 @@ fn verify_payment_receipt_denies_on_underpayment() {
     #[derive(serde::Deserialize)]
     struct R {
         ok: bool,
+        code: Option<String>,
         error: Option<String>,
     }
     let r: R = serde_wasm_bindgen::from_value(res).unwrap();
     assert!(!r.ok);
     assert!(r.error.is_some());
+    // The stable machine code lets a dapp branch on the failure kind without parsing prose.
+    assert_eq!(r.code.as_deref(), Some("INSUFFICIENT_AMOUNT"));
 }
 
 #[wasm_bindgen_test]
@@ -145,7 +148,9 @@ fn read_nft_ownership_flags_non_nft_spend() {
     #[derive(serde::Deserialize)]
     struct R {
         ok: bool,
+        code: Option<String>,
     }
     let r: R = serde_wasm_bindgen::from_value(res).unwrap();
     assert!(!r.ok);
+    assert_eq!(r.code.as_deref(), Some("NOT_AN_NFT"));
 }

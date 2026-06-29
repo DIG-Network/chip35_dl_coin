@@ -10,28 +10,52 @@ pub fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
     let ser = serde_wasm_bindgen::Serializer::new().serialize_large_number_types_as_bigints(true);
     value
         .serialize(&ser)
-        .map_err(|e| JsValue::from_str(&e.to_string()))
+        .map_err(|e| js_err("SERDE_ERROR", e.to_string()))
 }
 
 /// Deserialize a JS value into a Rust value. Accepts JS number and BigInt for integers.
 pub fn from_js<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
-    serde_wasm_bindgen::from_value(value).map_err(|e| JsValue::from_str(&e.to_string()))
+    serde_wasm_bindgen::from_value(value).map_err(|e| js_err("SERDE_ERROR", e.to_string()))
+}
+
+/// Build the structured error a throwing wasm export rejects with: a JS object
+/// `{ code, message }` carrying a stable `UPPER_SNAKE` machine code beside the human message, so an
+/// agent can branch on `err.code` instead of string-matching prose. Falls back to a plain string
+/// only if the object can't be constructed (it always can in a wasm runtime).
+///
+/// All `#[wasm_bindgen]` exports that can fail throw this shape; the result-shaped helpers
+/// (`{ ok, code?, error? }`) carry the same `code` as a field instead of throwing.
+pub fn js_err(code: &str, message: impl AsRef<str>) -> JsValue {
+    let obj = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&obj, &"code".into(), &JsValue::from_str(code));
+    let _ = js_sys::Reflect::set(
+        &obj,
+        &"message".into(),
+        &JsValue::from_str(message.as_ref()),
+    );
+    obj.into()
+}
+
+/// Map a core [`chip35_dl_coin::Error`] to the structured wasm error, preserving its stable `code`.
+pub fn js_err_from(e: chip35_dl_coin::Error) -> JsValue {
+    js_err(e.code(), e.to_string())
 }
 
 pub fn bytes32(buf: &[u8]) -> Result<Bytes32, JsValue> {
-    Bytes32::try_from(buf.to_vec()).map_err(|_| JsValue::from_str("expected 32-byte value"))
+    Bytes32::try_from(buf.to_vec())
+        .map_err(|_| js_err("INVALID_ARGUMENT", "expected 32-byte value"))
 }
 
 pub fn public_key(buf: &[u8]) -> Result<PublicKey, JsValue> {
-    let arr =
-        <[u8; 48]>::try_from(buf).map_err(|_| JsValue::from_str("expected 48-byte public key"))?;
-    PublicKey::from_bytes(&arr).map_err(|_| JsValue::from_str("invalid public key"))
+    let arr = <[u8; 48]>::try_from(buf)
+        .map_err(|_| js_err("INVALID_ARGUMENT", "expected 48-byte public key"))?;
+    PublicKey::from_bytes(&arr).map_err(|_| js_err("INVALID_ARGUMENT", "invalid public key"))
 }
 
 pub fn signature(buf: &[u8]) -> Result<Signature, JsValue> {
-    let arr =
-        <[u8; 96]>::try_from(buf).map_err(|_| JsValue::from_str("expected 96-byte signature"))?;
-    Signature::from_bytes(&arr).map_err(|_| JsValue::from_str("invalid signature"))
+    let arr = <[u8; 96]>::try_from(buf)
+        .map_err(|_| js_err("INVALID_ARGUMENT", "expected 96-byte signature"))?;
+    Signature::from_bytes(&arr).map_err(|_| js_err("INVALID_ARGUMENT", "invalid signature"))
 }
 
 use chip35_dl_coin::{
@@ -134,7 +158,7 @@ impl Proof {
                 parent_amount: ep.parent_amount,
             }))
         } else {
-            Err(JsValue::from_str("missing proof"))
+            Err(js_err("INVALID_ARGUMENT", "missing proof"))
         }
     }
 
@@ -200,7 +224,7 @@ impl DataStoreMetadata {
             program_hash: match &m.size_proof {
                 Some(s) => Some(
                     hex::decode(s.trim_start_matches("0x"))
-                        .map_err(|_| JsValue::from_str("invalid program_hash hex"))?,
+                        .map_err(|_| js_err("INVALID_ARGUMENT", "invalid program_hash hex"))?,
                 ),
                 None => None,
             },
@@ -245,7 +269,7 @@ impl DelegatedPuzzle {
         } else if let (Some(h), Some(fee)) = (&self.oracle_payment_puzzle_hash, self.oracle_fee) {
             Ok(RustDelegatedPuzzle::Oracle(bytes32(h)?, fee))
         } else {
-            Err(JsValue::from_str("missing delegated puzzle info"))
+            Err(js_err("INVALID_ARGUMENT", "missing delegated puzzle info"))
         }
     }
 
