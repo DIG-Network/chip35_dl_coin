@@ -13,7 +13,9 @@ use chia_bls::PublicKey;
 use chia_protocol::{Bytes32, Coin, CoinSpend};
 use chia_puzzle_types::nft::NftMetadata;
 use chia_puzzle_types::standard::StandardArgs;
-use chia_sdk_driver::{Launcher, NftMint, SpendContext, StandardLayer};
+use chia_sdk_driver::{
+    Did, IntermediateLauncher, Launcher, NftMint, SingletonInfo, SpendContext, StandardLayer,
+};
 use chia_sdk_types::{conditions::TransferNft, Conditions};
 
 use crate::error::WalletError;
@@ -182,6 +184,101 @@ pub fn mint_nft(
         );
     }
     p2.spend(&mut ctx, lead_coin, lead_conditions)?;
+
+    Ok(NftMintResponse {
+        coin_spends: ctx.take(),
+        launcher_id: nft.info.launcher_id,
+        nft_coin: nft.coin,
+    })
+}
+
+/// Mint a single NFT **authorized by + attributed to a creator DID** (roadmap #38).
+///
+/// [`mint_nft`] only stamps the `TransferNft` attribution onto the NFT; it does NOT prove the DID
+/// consented. This builder composes the DID-acknowledgement spend INTO the same bundle so the
+/// on-chain owner assignment is genuinely authorized by the creator identity: it mints via an
+/// [`IntermediateLauncher`] rooted at the DID coin (the canonical chia-sdk-driver DID-mint pattern,
+/// matching [`crate::build_bulk_mint`]) and spends the DID once with the mint conditions, so the
+/// NFT's eve spend asserts the DID's announcement. The DID coin lineage funds the launcher; the
+/// minter's `selected_coins` cover the `fee` and assert concurrent spend so the bundle is atomic,
+/// with any remainder returned as change.
+///
+/// `did` is the on-chain creator DID (fetched by the caller via coinset / [`crate::create_did`]) and
+/// must be spendable by `minter_synthetic_key`. `params.did` is ignored here (the full [`Did`] is the
+/// authority); `params.p2_puzzle_hash` owns the minted NFT.
+///
+/// # Errors
+/// [`WalletError::Parse`] if `selected_coins` is empty; [`WalletError::Driver`] on spend-construction
+/// failure.
+pub fn mint_nft_with_did(
+    minter_synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    did: Did,
+    params: NftMintParams,
+    fee: u64,
+) -> Result<NftMintResponse, WalletError> {
+    if selected_coins.is_empty() {
+        return Err(WalletError::Parse("selected_coins is empty".to_string()));
+    }
+
+    let minter_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(minter_synthetic_key).into();
+    let total_amount_from_coins: u64 = selected_coins.iter().map(|c| c.amount).sum();
+
+    let mut ctx = SpendContext::new();
+    let p2 = StandardLayer::new(minter_synthetic_key);
+
+    let lead_coin = selected_coins[0];
+    let lead_coin_name = lead_coin.coin_id();
+    let did_coin_name = did.coin.coin_id();
+
+    for coin in selected_coins.into_iter().skip(1) {
+        p2.spend(
+            &mut ctx,
+            coin,
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
+        )?;
+    }
+
+    // Attribute the NFT to the DID, then mint it through an intermediate launcher rooted at the DID
+    // coin so the mint conditions are emitted by the DID spend (the authorization).
+    let did_attr = DidAttribution {
+        launcher_id: did.info.launcher_id,
+        inner_puzzle_hash: did.info.inner_puzzle_hash().into(),
+    };
+    let metadata_ptr = ctx.alloc_hashed(&params.metadata.to_chain())?;
+    let transfer = TransferNft::new(
+        Some(did_attr.launcher_id),
+        Vec::new(),
+        Some(did_attr.inner_puzzle_hash),
+    );
+    let mut nft_mint = NftMint::new(
+        metadata_ptr,
+        params.p2_puzzle_hash,
+        params.royalty_basis_points,
+        Some(transfer),
+    );
+    nft_mint.royalty_puzzle_hash = params.royalty_puzzle_hash;
+
+    let (mint_conditions, nft) = IntermediateLauncher::new(did_coin_name, 0, 1)
+        .create(&mut ctx)?
+        .mint_nft(&mut ctx, &nft_mint)?;
+
+    // The minter's lead coin pays the fee, ties the bundle to the DID spend (atomic), and returns
+    // change. The launcher itself is funded via the DID-coin lineage (the intermediate launcher), so
+    // the minter only reserves `fee` here — no extra mojo for the launcher.
+    let mut lead_conditions = Conditions::new().assert_concurrent_spend(did_coin_name);
+    if fee > 0 {
+        lead_conditions = lead_conditions.reserve_fee(fee);
+    }
+    if total_amount_from_coins > fee {
+        let hint = ctx.hint(minter_puzzle_hash)?;
+        lead_conditions =
+            lead_conditions.create_coin(minter_puzzle_hash, total_amount_from_coins - fee, hint);
+    }
+    p2.spend(&mut ctx, lead_coin, lead_conditions)?;
+
+    // Spend the DID once, authorizing the mint (emits the mint conditions).
+    let _recreated_did = did.update(&mut ctx, &p2, mint_conditions)?;
 
     Ok(NftMintResponse {
         coin_spends: ctx.take(),

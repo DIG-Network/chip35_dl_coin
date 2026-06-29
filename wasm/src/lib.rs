@@ -47,8 +47,9 @@ const BUILDERS: &[&str] = &[
     "adminDelegatedPuzzleFromKey",
     "writerDelegatedPuzzleFromKey",
     "oracleDelegatedPuzzle",
-    // Asset toolkit (#33/#34/#35/#36).
+    // Asset toolkit (#33/#34/#35/#36/#38).
     "mintNft",
+    "mintNftWithDid",
     "bulkMint",
     "generateItemMetadata",
     "createDid",
@@ -524,8 +525,8 @@ use chip35_dl_coin::{
     build_bulk_mint as core_bulk_mint, create_did as core_create_did,
     decode_offer as core_decode_offer, encode_offer as core_encode_offer,
     generate_item_metadata as core_generate_item_metadata, issue_cat as core_issue_cat,
-    mint_nft as core_mint_nft, sha256 as core_sha256, validate_uri_hash as core_validate_uri_hash,
-    Did as RustDid, DidInfo as RustDidInfo,
+    mint_nft as core_mint_nft, mint_nft_with_did as core_mint_nft_with_did, sha256 as core_sha256,
+    validate_uri_hash as core_validate_uri_hash, Did as RustDid, DidInfo as RustDidInfo,
 };
 
 /// SHA-256 of arbitrary bytes → 32-byte hash (the one true primitive for `data_hash`/
@@ -650,6 +651,51 @@ pub fn mint_nft(
     let resp = core_mint_nft(
         public_key(minter_synthetic_key)?,
         coins_from_js(selected_coins)?,
+        params.to_native()?,
+        fee,
+    )
+    .map_err(js_err_from)?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        #[serde(with = "serde_bytes")]
+        launcher_id: Vec<u8>,
+        nft_coin: crate::types::Coin,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        launcher_id: resp.launcher_id.to_vec(),
+        nft_coin: crate::types::Coin::from_native(&resp.nft_coin),
+    })
+}
+
+/// Mint a single NFT AUTHORIZED BY + attributed to a creator DID (#38). Unlike `mintNft` (which only
+/// stamps the attribution), this composes the DID-acknowledgement spend into the bundle so the
+/// on-chain owner assignment is genuinely authorized by the creator identity. `did` is the DID's
+/// current on-chain coin + identifiers `{ didCoin, proof, launcherId, innerPuzzleHash }` (fetched
+/// on-chain / from a prior `createDid`); `params` is `NftMintParams` (its `did` field is ignored —
+/// the full `did` arg is the authority). `selected_coins` cover the `fee`. Returns
+/// `{ coinSpends, launcherId, nftCoin }`.
+#[wasm_bindgen(js_name = "mintNftWithDid", unchecked_return_type = "NftMintResult")]
+pub fn mint_nft_with_did(
+    minter_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Did")] did: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "NftMintParams")] params: JsValue,
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    let params: JsNftMintParams = from_js(params)?;
+    let native_did = did_from_js(did)?;
+    let resp = core_mint_nft_with_did(
+        public_key(minter_synthetic_key)?,
+        coins_from_js(selected_coins)?,
+        native_did,
         params.to_native()?,
         fee,
     )
