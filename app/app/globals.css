@@ -1,4 +1,41 @@
-/* CHIP-0035 DataLayer Demo — minimal reset + base styles */
+/* DIG Network — CHIP-0035 DataLayer demo: theme reset + DIG design tokens.
+   On-brand white DIG product surface (SYSTEM.md → Canonical terminology &
+   branding): clean white, violet #5800D6 → magenta #FF00DE accent, Space
+   Grotesk (display/UI) + Space Mono (identifiers/code). All component colors
+   reference these tokens so the palette lives in ONE place. */
+
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
+
+:root {
+  /* accent — the signature DIG gradient + its endpoints */
+  --dig-violet: #5800d6;
+  --dig-magenta: #ff00de;
+  --dig-accent: #5800d6; /* primary accent (links, focus, secondary buttons) */
+  --dig-accent-strong: #4400a8; /* darker violet for hover/active */
+  --dig-grad: linear-gradient(115deg, #5800d6 0%, #ff00de 100%);
+
+  /* surfaces (white product theme) */
+  --dig-bg: #faf9ff; /* page base */
+  --dig-surface: #ffffff; /* cards / header */
+  --dig-well: #f5f3fb; /* recessed inputs / chips */
+  --dig-border: #e7e3f5; /* hairline borders */
+  --dig-border-input: #d8d2ee;
+
+  /* ink */
+  --dig-ink: #14123a; /* primary text (brand navy ink) */
+  --dig-ink-2: #45417a; /* labels / secondary */
+  --dig-ink-3: #6e6a99; /* captions */
+  --dig-ink-4: #9a95c0; /* faint meta */
+
+  /* status */
+  --dig-ok: #12a877;
+  --dig-warn: #b67916;
+  --dig-danger: #d6336c;
+
+  /* type */
+  --dig-font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --dig-font-mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -8,15 +45,15 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background: #f8fafc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--dig-bg);
+  font-family: var(--dig-font-display);
   font-size: 16px;
-  color: #111827;
+  color: var(--dig-ink);
   -webkit-font-smoothing: antialiased;
 }
 
 a {
-  color: #2563eb;
+  color: var(--dig-accent);
   text-decoration: none;
 }
 
@@ -25,13 +62,13 @@ a:hover {
 }
 
 button:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--dig-accent);
   outline-offset: 2px;
 }
 
 input:focus {
-  outline: 2px solid #93c5fd;
-  border-color: #3b82f6 !important;
+  outline: 2px solid var(--dig-magenta);
+  border-color: var(--dig-violet) !important;
 }
 
 /* Spinner animation used by WalletConnector */

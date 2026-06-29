@@ -132,9 +132,9 @@ async function _initClient(): Promise<SignClient | undefined> {
     logger: "error",
     projectId,
     metadata: {
-      name: "CHIP-0035 DataLayer Store Demo",
+      name: "DIG Network — CHIP-0035 Store Demo",
       description:
-        "List / mint / update / delete CHIP-0035 DataLayer stores on Chia via Sage Wallet",
+        "A DIG Network demo: mint / advance (new capsule) / melt CHIP-0035 stores on Chia via Sage Wallet",
       url: origin,
       icons: ["https://avatars.githubusercontent.com/u/37784886"],
     },

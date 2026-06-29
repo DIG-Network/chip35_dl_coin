@@ -151,6 +151,13 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
           const shortCoinId = entry.currentCoinIdHex.slice(0, 10) + "…" + entry.currentCoinIdHex.slice(-6);
           const rootHash = entry.dataStoreJson.metadata.rootHash;
           const shortRootHash = rootHash.slice(0, 10) + "…" + rootHash.slice(-6);
+          // The capsule = this generation's identity: storeId:rootHash (canonical
+          // DIG form; see SYSTEM.md → Core concept — the capsule). storeId is the
+          // launcher id; rootHash is stored 0x-prefixed, so strip it here.
+          const rootBare = rootHash.replace(/^0x/i, "");
+          const capsuleId = entry.launcherId + ":" + rootBare;
+          const shortCapsule =
+            entry.launcherId.slice(0, 8) + "…:" + rootBare.slice(0, 8) + "…";
           const programHash = entry.dataStoreJson.metadata.programHash;
           const shortProgramHash = programHash
             ? programHash.slice(0, 10) + "…" + programHash.slice(-6)
@@ -162,14 +169,14 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
               style={{
                 ...styles.storeRow,
                 opacity: isDeleted ? 0.55 : 1,
-                background: isDeleted ? "#f9fafb" : "#fff",
+                background: isDeleted ? "var(--dig-well)" : "var(--dig-surface)",
               }}
             >
               {/* Header */}
               <div style={styles.storeHeader}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={styles.storeLabel}>
-                    {entry.label || <em style={{ color: "#9ca3af" }}>Unlabelled</em>}
+                    {entry.label || <em style={{ color: "var(--dig-ink-4)" }}>Unlabelled</em>}
                   </span>
                   <span
                     style={
@@ -189,6 +196,7 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                       style={styles.btnAction}
                       onClick={() => setEditingId(isEditing ? null : entry.launcherId)}
                       disabled={isDeleting}
+                      title="Advance this store to a new capsule"
                     >
                       {isEditing ? "Cancel Edit" : "Update"}
                     </button>
@@ -208,15 +216,15 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
                       disabled={isDeleting}
                       style={{
                         width: 120,
-                        border: "1px solid #d1d5db",
+                        border: "1px solid var(--dig-border-input)",
                         borderRadius: 7,
                         padding: "4px 8px",
                         fontSize: "0.8rem",
-                        background: "#fafafa",
+                        background: "var(--dig-well)",
                       }}
                     />
                     <button
-                      style={{ ...styles.btnAction, color: "#dc2626", borderColor: "#dc2626" }}
+                      style={{ ...styles.btnAction, color: "var(--dig-danger)", borderColor: "var(--dig-danger)" }}
                       onClick={() => handleDelete(entry)}
                       disabled={isDeleting}
                     >
@@ -234,7 +242,13 @@ export default function StoreList({ refreshSignal }: StoreListProps) {
               {/* Fields */}
               <div style={styles.fields}>
                 <FieldRow
-                  label="Launcher ID"
+                  label="Capsule"
+                  value={shortCapsule}
+                  fullValue={capsuleId}
+                  onCopy={() => copyToClipboard(capsuleId)}
+                />
+                <FieldRow
+                  label="Store (Launcher ID)"
                   value={shortId}
                   fullValue={entry.launcherId}
                   onCopy={() => copyToClipboard(entry.launcherId)}
@@ -322,20 +336,20 @@ function FieldRow({
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: "0.8rem", color: "#6b7280", minWidth: 100 }}>{label}:</span>
+      <span style={{ fontSize: "0.8rem", color: "var(--dig-ink-3)", minWidth: 100 }}>{label}:</span>
       {link ? (
         <a
           href={link}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontFamily: "monospace", fontSize: "0.82rem", color: "#2563eb" }}
+          style={{ fontFamily: "var(--dig-font-mono)", fontSize: "0.82rem", color: "var(--dig-accent)" }}
           title={fullValue}
         >
           {value}
         </a>
       ) : (
         <span
-          style={{ fontFamily: "monospace", fontSize: "0.82rem", color: "#374151" }}
+          style={{ fontFamily: "var(--dig-font-mono)", fontSize: "0.82rem", color: "var(--dig-ink-2)" }}
           title={fullValue}
         >
           {value}
@@ -349,7 +363,7 @@ function FieldRow({
           border: "none",
           cursor: "pointer",
           fontSize: "0.8rem",
-          color: "#9ca3af",
+          color: "var(--dig-ink-4)",
           padding: "0 2px",
           lineHeight: 1,
         }}
@@ -362,8 +376,8 @@ function FieldRow({
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "var(--dig-surface)",
+    border: "1px solid var(--dig-border)",
     borderRadius: 12,
     padding: "24px 28px",
     boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
@@ -372,24 +386,24 @@ const styles: Record<string, React.CSSProperties> = {
     margin: "0 0 20px",
     fontSize: "1.15rem",
     fontWeight: 700,
-    color: "#111827",
+    color: "var(--dig-ink)",
   },
   count: {
     fontSize: "0.82rem",
-    color: "#6b7280",
-    background: "#f3f4f6",
+    color: "var(--dig-ink-3)",
+    background: "var(--dig-border)",
     borderRadius: 20,
     padding: "3px 10px",
   },
   empty: {
-    color: "#9ca3af",
+    color: "var(--dig-ink-4)",
     fontSize: "0.95rem",
     margin: 0,
     textAlign: "center",
     padding: "24px 0",
   },
   storeRow: {
-    border: "1px solid #e5e7eb",
+    border: "1px solid var(--dig-border)",
     borderRadius: 10,
     padding: "18px 20px",
     display: "flex",
@@ -406,13 +420,13 @@ const styles: Record<string, React.CSSProperties> = {
   storeLabel: {
     fontSize: "1rem",
     fontWeight: 600,
-    color: "#111827",
+    color: "var(--dig-ink)",
   },
   badgeLive: {
     fontSize: "0.72rem",
     fontWeight: 700,
-    background: "#dcfce7",
-    color: "#16a34a",
+    background: "#dcf5ec",
+    color: "var(--dig-ok)",
     borderRadius: 20,
     padding: "2px 9px",
     letterSpacing: "0.04em",
@@ -421,8 +435,8 @@ const styles: Record<string, React.CSSProperties> = {
   badgePending: {
     fontSize: "0.72rem",
     fontWeight: 700,
-    background: "#fef3c7",
-    color: "#d97706",
+    background: "#f6ecd6",
+    color: "var(--dig-warn)",
     borderRadius: 20,
     padding: "2px 9px",
     letterSpacing: "0.04em",
@@ -431,8 +445,8 @@ const styles: Record<string, React.CSSProperties> = {
   badgeDeleted: {
     fontSize: "0.72rem",
     fontWeight: 700,
-    background: "#fee2e2",
-    color: "#dc2626",
+    background: "#fbe0ea",
+    color: "var(--dig-danger)",
     borderRadius: 20,
     padding: "2px 9px",
     letterSpacing: "0.04em",
@@ -441,7 +455,7 @@ const styles: Record<string, React.CSSProperties> = {
   description: {
     margin: 0,
     fontSize: "0.85rem",
-    color: "#6b7280",
+    color: "var(--dig-ink-3)",
     fontStyle: "italic",
   },
   fields: {
@@ -456,12 +470,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   btnAction: {
     background: "transparent",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--dig-border-input)",
     borderRadius: 7,
     padding: "5px 12px",
     fontSize: "0.82rem",
     cursor: "pointer",
-    color: "#374151",
+    color: "var(--dig-ink-2)",
   },
   livenessRow: {
     display: "flex",
@@ -472,26 +486,26 @@ const styles: Record<string, React.CSSProperties> = {
   },
   livenessLoading: {
     fontSize: "0.8rem",
-    color: "#9ca3af",
+    color: "var(--dig-ink-4)",
     fontStyle: "italic",
   },
   livenessUnspent: {
     fontSize: "0.8rem",
-    color: "#16a34a",
+    color: "var(--dig-ok)",
     fontWeight: 600,
   },
   livenessSpent: {
     fontSize: "0.8rem",
-    color: "#dc2626",
+    color: "var(--dig-danger)",
     fontWeight: 600,
   },
   btnRefresh: {
     background: "transparent",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--dig-border-input)",
     borderRadius: 6,
     padding: "4px 12px",
     fontSize: "0.78rem",
     cursor: "pointer",
-    color: "#6b7280",
+    color: "var(--dig-ink-3)",
   },
 };

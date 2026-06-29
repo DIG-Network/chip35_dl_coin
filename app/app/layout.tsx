@@ -4,9 +4,9 @@ import WalletProvider from "./components/WalletProvider";
 import ToastProvider from "./components/ToastProvider";
 
 export const metadata: Metadata = {
-  title: "CHIP-0035 DataLayer Tech Demo",
+  title: "DIG Network — CHIP-0035 Store Demo",
   description:
-    "List, mint, update, and delete CHIP-0035 DataLayer stores on Chia via Sage Wallet and WalletConnect.",
+    "A DIG Network demo: mint a store, advance it to a new capsule, and melt it on Chia via the DIG Browser or Sage Wallet (WalletConnect).",
 };
 
 export default function RootLayout({
