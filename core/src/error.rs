@@ -14,5 +14,19 @@ pub enum Error {
     Permission,
 }
 
+impl Error {
+    /// A stable, machine-readable `UPPER_SNAKE` code an automated caller can branch on instead of
+    /// string-matching the human [`Display`](std::fmt::Display) message. The code is part of the
+    /// public contract — changing one is a breaking change. Surfaced across the wasm boundary by the
+    /// bindings (see `wasm/src/lib.rs`).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Error::Driver(_) => "DRIVER_ERROR",
+            Error::Parse(_) => "PARSE_ERROR",
+            Error::Permission => "PERMISSION_DENIED",
+        }
+    }
+}
+
 /// Alias so the copied driver bodies (which reference `WalletError`) compile unchanged.
 pub type WalletError = Error;

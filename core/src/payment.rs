@@ -286,6 +286,21 @@ pub enum PaywallError {
     },
 }
 
+impl PaywallError {
+    /// A stable, machine-readable `UPPER_SNAKE` code a dapp/agent can branch on instead of
+    /// string-matching the human [`Display`] message. Part of the public contract (changing one is a
+    /// breaking change); surfaced as the `code` field of the `{ ok:false, code, error }` result the
+    /// wasm `verifyPaymentReceipt` helper returns.
+    pub fn code(&self) -> &'static str {
+        match self {
+            PaywallError::WrongRecipient { .. } => "WRONG_RECIPIENT",
+            PaywallError::InsufficientAmount { .. } => "INSUFFICIENT_AMOUNT",
+            PaywallError::WrongAsset { .. } => "WRONG_ASSET",
+            PaywallError::NonceMismatch { .. } => "NONCE_MISMATCH",
+        }
+    }
+}
+
 impl core::fmt::Display for PaywallError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
