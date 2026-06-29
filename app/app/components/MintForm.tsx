@@ -111,6 +111,12 @@ export default function MintForm({ onMinted }: MintFormProps) {
   return (
     <section style={styles.card}>
       <h2 style={styles.cardTitle}>Mint New Store</h2>
+      <p style={styles.cardNote}>
+        Minting creates the on-chain store (its first capsule). Each later commit advances it to a
+        new capsule. This low-level demo pays only the XCH network fee below; in the full DIG flow,
+        publishing a capsule also costs a small amount of <strong>$DIG</strong>, and the content is
+        opened with a <code style={{ fontFamily: "var(--dig-font-mono)" }}>chia://</code> address.
+      </p>
       <form onSubmit={handleSubmit} style={styles.form}>
         <label style={styles.label}>
           Label <span style={styles.optional}>(optional)</span>
@@ -140,7 +146,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
           Root Hash <span style={styles.optional}>(64 hex chars)</span>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.8rem", flex: 1 }}
+              style={{ ...styles.input, fontFamily: "var(--dig-font-mono)", fontSize: "0.8rem", flex: 1 }}
               type="text"
               value={rootHash}
               onChange={(e) => setRootHash(e.target.value)}
@@ -164,7 +170,7 @@ export default function MintForm({ onMinted }: MintFormProps) {
           Program Hash <span style={styles.optional}>(32-byte hex, optional)</span>
           <div style={{ display: "flex", gap: 8 }}>
             <input
-              style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.8rem", flex: 1 }}
+              style={{ ...styles.input, fontFamily: "var(--dig-font-mono)", fontSize: "0.8rem", flex: 1 }}
               type="text"
               value={programHash}
               onChange={(e) => setProgramHash(e.target.value)}
@@ -225,17 +231,23 @@ export default function MintForm({ onMinted }: MintFormProps) {
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "var(--dig-surface)",
+    border: "1px solid var(--dig-border)",
     borderRadius: 12,
     padding: "24px 28px",
     boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
   },
   cardTitle: {
-    margin: "0 0 20px",
+    margin: "0 0 8px",
     fontSize: "1.15rem",
     fontWeight: 700,
-    color: "#111827",
+    color: "var(--dig-ink)",
+  },
+  cardNote: {
+    margin: "0 0 18px",
+    fontSize: "0.82rem",
+    lineHeight: 1.5,
+    color: "var(--dig-ink-3)",
   },
   form: {
     display: "flex",
@@ -248,26 +260,26 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
     fontSize: "0.9rem",
     fontWeight: 600,
-    color: "#374151",
+    color: "var(--dig-ink-2)",
   },
   optional: {
     fontWeight: 400,
-    color: "#9ca3af",
+    color: "var(--dig-ink-4)",
     fontSize: "0.8rem",
   },
   input: {
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--dig-border-input)",
     borderRadius: 7,
     padding: "9px 12px",
     fontSize: "0.9rem",
     outline: "none",
     transition: "border-color 0.15s",
-    background: "#fafafa",
+    background: "var(--dig-well)",
   },
   btnPrimary: {
     alignSelf: "flex-start",
-    background: "#2563eb",
-    color: "#fff",
+    background: "var(--dig-grad)",
+    color: "var(--dig-surface)",
     border: "none",
     borderRadius: 8,
     padding: "10px 24px",
@@ -278,8 +290,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   btnSecondary: {
     background: "transparent",
-    color: "#2563eb",
-    border: "1px solid #2563eb",
+    color: "var(--dig-accent)",
+    border: "1px solid var(--dig-accent)",
     borderRadius: 7,
     padding: "8px 14px",
     fontSize: "0.85rem",
@@ -289,13 +301,13 @@ const styles: Record<string, React.CSSProperties> = {
   notice: {
     margin: 0,
     fontSize: "0.82rem",
-    color: "#f59e0b",
+    color: "var(--dig-warn)",
     fontStyle: "italic",
   },
   phase: {
     margin: 0,
     fontSize: "0.82rem",
-    color: "#2563eb",
+    color: "var(--dig-accent)",
     fontStyle: "italic",
   },
 };

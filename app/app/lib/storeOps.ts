@@ -11,6 +11,12 @@
 // BROWSER-ONLY: never call these at module scope or during SSR.
 
 import { getWasm } from "./wasm";
+// Type-only import of the wasm's precise argument types. As of
+// chip35-dl-coin-wasm 0.9.0 the generated .d.ts types `selected_coins` as
+// `Coin[]` and `delegated_puzzles` as `DelegatedPuzzle[]`, so the call sites
+// below cast to these (a `WasmCoin` is structurally a `Coin`) instead of the
+// old `as unknown as object`, which no longer type-checks against an array.
+import type { Coin, DelegatedPuzzle, DataStore } from "chip35-dl-coin-wasm";
 import {
   getAddress,
   getAssetCoins,
@@ -231,14 +237,14 @@ export async function mint(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = wasm.mintStore(
     minterSyntheticKey,
-    [selected.coin] as unknown as object,
+    [selected.coin] as unknown as Coin[],
     rootHash,
     params.label ?? null,
     params.description ?? null,
     undefined, // bytes
     params.programHashHex ? hex0xToBytes(params.programHashHex) : undefined, // programHash
     ownerPuzzleHash,
-    [] as unknown as object, // delegatedPuzzles — empty for basic mint
+    [] as unknown as DelegatedPuzzle[], // delegatedPuzzles — empty for basic mint
     params.feeMojos
   ) as { coinSpends: unknown[]; newStore: unknown };
 
@@ -340,7 +346,7 @@ export async function updateMetadata(
 
   const wasm = await getWasm();
   const result = wasm.updateStoreMetadata(
-    store as unknown as object,
+    store as unknown as DataStore,
     newRootHash,
     params.newLabel ?? null,
     params.newDescription ?? null,
@@ -373,8 +379,8 @@ export async function updateMetadata(
 
     const feeCoinSpends = wasm.addFee(
       hex0xToBytes(feeSel.syntheticPkHex),
-      [feeSel.coin] as unknown as object,
-      [assertId] as unknown as object,
+      [feeSel.coin] as unknown as Coin[],
+      [assertId] as unknown as Uint8Array[],
       feeMojos
     ) as WasmCoinSpend[];
 
@@ -457,7 +463,7 @@ export async function del(
 
   const wasm = await getWasm();
   const meltCoinSpends = wasm.meltStore(
-    store as unknown as object,
+    store as unknown as DataStore,
     ownerPublicKey
   ) as WasmCoinSpend[];
 
@@ -479,8 +485,8 @@ export async function del(
 
     const feeCoinSpends = wasm.addFee(
       hex0xToBytes(feeSel.syntheticPkHex),
-      [feeSel.coin] as unknown as object,
-      [assertId] as unknown as object,
+      [feeSel.coin] as unknown as Coin[],
+      [assertId] as unknown as Uint8Array[],
       feeMojos
     ) as WasmCoinSpend[];
 

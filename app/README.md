@@ -1,6 +1,8 @@
-# chip35-dl-coin-app
+# DIG Network — CHIP-0035 store demo
 
-Next.js demo UI for the CHIP-0035 DataLayer store driver: connect a wallet, then **list / mint / update / delete** DataLayer stores on Chia **mainnet**.
+A DIG Network demo UI for the `@dignetwork/chip35-dl-coin-wasm` store driver: connect a wallet, then **mint a store, advance it to a new capsule (update), and melt it (delete)** on Chia **mainnet**.
+
+> **Store vs capsule** (DIG vocabulary): a **store** is the on-chain singleton identity; a **capsule** is one immutable generation of it (`storeId:rootHash`). Minting creates the store's first capsule; each update advances it to a new capsule. In the full DIG flow, publishing a capsule costs a small amount of **$DIG** and the content is opened with a `chia://` address — this low-level demo exercises only the underlying CHIP-0035 spends and pays the XCH network fee.
 
 Two wallet backends, auto-selected at connect time:
 
