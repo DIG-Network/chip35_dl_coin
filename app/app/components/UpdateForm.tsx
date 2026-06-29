@@ -104,6 +104,10 @@ export default function UpdateForm({
 
   return (
     <form onSubmit={handleSubmit} style={styles.form}>
+      <p style={styles.formNote}>
+        Saving advances this store to a new <strong>capsule</strong> (a fresh
+        <code style={{ fontFamily: "var(--dig-font-mono)" }}> storeId:rootHash</code> generation).
+      </p>
       <label style={styles.label}>
         New Label <span style={styles.optional}>(optional)</span>
         <input
@@ -130,7 +134,7 @@ export default function UpdateForm({
         New Root Hash
         <div style={{ display: "flex", gap: 8 }}>
           <input
-            style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.78rem", flex: 1 }}
+            style={{ ...styles.input, fontFamily: "var(--dig-font-mono)", fontSize: "0.78rem", flex: 1 }}
             type="text"
             value={newRootHash}
             onChange={(e) => setNewRootHash(e.target.value)}
@@ -152,7 +156,7 @@ export default function UpdateForm({
         New Program Hash <span style={styles.optional}>(32-byte hex, optional)</span>
         <div style={{ display: "flex", gap: 8 }}>
           <input
-            style={{ ...styles.input, fontFamily: "monospace", fontSize: "0.78rem", flex: 1 }}
+            style={{ ...styles.input, fontFamily: "var(--dig-font-mono)", fontSize: "0.78rem", flex: 1 }}
             type="text"
             value={newProgramHash}
             onChange={(e) => setNewProgramHash(e.target.value)}
@@ -221,8 +225,13 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: 14,
     padding: "16px 0 4px",
-    borderTop: "1px solid #f3f4f6",
+    borderTop: "1px solid var(--dig-border)",
     marginTop: 12,
+  },
+  formNote: {
+    margin: 0,
+    fontSize: "0.82rem",
+    color: "var(--dig-ink-3)",
   },
   label: {
     display: "flex",
@@ -230,24 +239,24 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 5,
     fontSize: "0.88rem",
     fontWeight: 600,
-    color: "#374151",
+    color: "var(--dig-ink-2)",
   },
   optional: {
     fontWeight: 400,
-    color: "#9ca3af",
+    color: "var(--dig-ink-4)",
     fontSize: "0.78rem",
   },
   input: {
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--dig-border-input)",
     borderRadius: 7,
     padding: "8px 11px",
     fontSize: "0.88rem",
     outline: "none",
-    background: "#fafafa",
+    background: "var(--dig-well)",
   },
   btnPrimary: {
-    background: "#2563eb",
-    color: "#fff",
+    background: "var(--dig-grad)",
+    color: "var(--dig-surface)",
     border: "none",
     borderRadius: 8,
     padding: "9px 20px",
@@ -257,8 +266,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   btnSecondary: {
     background: "transparent",
-    color: "#2563eb",
-    border: "1px solid #2563eb",
+    color: "var(--dig-accent)",
+    border: "1px solid var(--dig-accent)",
     borderRadius: 7,
     padding: "8px 14px",
     fontSize: "0.85rem",
@@ -268,7 +277,7 @@ const styles: Record<string, React.CSSProperties> = {
   phase: {
     margin: 0,
     fontSize: "0.82rem",
-    color: "#2563eb",
+    color: "var(--dig-accent)",
     fontStyle: "italic",
   },
 };

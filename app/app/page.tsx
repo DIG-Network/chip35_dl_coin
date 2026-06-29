@@ -34,9 +34,12 @@ const Dashboard = dynamic(
           <header style={pageStyles.header}>
             <div style={pageStyles.headerInner}>
               <div>
-                <h1 style={pageStyles.title}>CHIP-0035 DataLayer Tech Demo</h1>
+                <h1 style={pageStyles.title}>
+                  <span style={pageStyles.brand}>DIG Network</span> · CHIP-0035 Store Demo
+                </h1>
                 <p style={pageStyles.subtitle}>
-                  Mint, update, and delete Chia DataLayer stores via the DIG Browser or Sage Wallet
+                  Mint a store, advance it to a new capsule, and melt it — on Chia mainnet, via the DIG
+                  Browser or Sage Wallet
                 </p>
               </div>
               <WalletConnector />
@@ -52,13 +55,13 @@ const Dashboard = dynamic(
           {/* Footer */}
           <footer style={pageStyles.footer}>
             <p>
-              CHIP-0035 DataLayer Demo &mdash; powered by{" "}
+              A DIG Network demo &mdash; powered by{" "}
               <a
-                href="https://github.com/Rigidity/chip35-dl-coin"
+                href="https://www.npmjs.com/package/@dignetwork/chip35-dl-coin-wasm"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                chip35-dl-coin-wasm
+                @dignetwork/chip35-dl-coin-wasm
               </a>{" "}
               +{" "}
               <a
@@ -87,15 +90,15 @@ const Dashboard = dynamic(
           minHeight: "100vh",
           flexDirection: "column",
           gap: 16,
-          color: "#6b7280",
+          color: "var(--dig-ink-3)",
         }}
       >
         <div
           style={{
             width: 36,
             height: 36,
-            border: "3px solid #e5e7eb",
-            borderTopColor: "#2563eb",
+            border: "3px solid var(--dig-border)",
+            borderTopColor: "var(--dig-violet)",
             borderRadius: "50%",
             animation: "spin 0.8s linear infinite",
           }}
@@ -115,11 +118,11 @@ const pageStyles: Record<string, React.CSSProperties> = {
     minHeight: "100vh",
     display: "flex",
     flexDirection: "column",
-    background: "#f8fafc",
+    background: "var(--dig-bg)",
   },
   header: {
-    background: "#fff",
-    borderBottom: "1px solid #e5e7eb",
+    background: "var(--dig-surface)",
+    borderBottom: "1px solid var(--dig-border)",
     padding: "0 24px",
     position: "sticky",
     top: 0,
@@ -138,14 +141,20 @@ const pageStyles: Record<string, React.CSSProperties> = {
   title: {
     margin: 0,
     fontSize: "1.25rem",
-    fontWeight: 800,
-    color: "#111827",
+    fontWeight: 700,
+    color: "var(--dig-ink)",
     letterSpacing: "-0.01em",
+  },
+  brand: {
+    background: "var(--dig-grad)",
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    color: "transparent",
   },
   subtitle: {
     margin: "2px 0 0",
     fontSize: "0.82rem",
-    color: "#6b7280",
+    color: "var(--dig-ink-3)",
   },
   content: {
     maxWidth: 860,
@@ -161,8 +170,8 @@ const pageStyles: Record<string, React.CSSProperties> = {
     textAlign: "center",
     padding: "20px 24px",
     fontSize: "0.8rem",
-    color: "#9ca3af",
-    borderTop: "1px solid #f3f4f6",
+    color: "var(--dig-ink-4)",
+    borderTop: "1px solid var(--dig-border)",
     marginTop: "auto",
   },
 };
