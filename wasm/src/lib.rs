@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 
 mod asset_types;
 mod monetization_types;
+mod ts;
 mod types;
 
 /// Initialise the module. Call once at startup. Installs a panic hook (when the
@@ -18,9 +19,113 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// The published npm package name (the scoped name the wasm publishes under). The Cargo crate name
+/// is the unscoped `chip35-dl-coin-wasm`; `patch-pkg.mjs` rewrites the manifest to this scoped name
+/// at publish time, so we pin it here for the runtime descriptor.
+const PACKAGE_NAME: &str = "@dignetwork/chip35-dl-coin-wasm";
+
+/// Every `#[wasm_bindgen]` builder/helper this module exports (the camelCase JS names), grouped by
+/// family. Single source of truth for [`capabilities`] so the runtime descriptor cannot drift from
+/// the actual surface — keep this in lockstep with the exports below.
+const BUILDERS: &[&str] = &[
+    // DataStore spend builders + serialization.
+    "mintStore",
+    "updateStoreMetadata",
+    "updateStoreOwnership",
+    "meltStore",
+    "oracleSpend",
+    "addFee",
+    "digstoreOwnerHint",
+    "dataStoreFromSpend",
+    "spendBundleToHex",
+    "hexSpendBundleToCoinSpends",
+    // DataStore delegation (hub Teams #43 + revocable deploy tokens #17).
+    "adminDelegatedPuzzleFromKey",
+    "writerDelegatedPuzzleFromKey",
+    "oracleDelegatedPuzzle",
+    // Asset toolkit (#33/#34/#35/#36).
+    "mintNft",
+    "bulkMint",
+    "generateItemMetadata",
+    "createDid",
+    "issueCat",
+    "encodeOffer",
+    "decodeOffer",
+    "buildChip0007Metadata",
+    "validateChip0007",
+    "sha256",
+    // In-dapp monetization (#46): payment, paywall, NFT-gating.
+    "buildPayment",
+    "buildCatPayment",
+    "verifyPaymentReceipt",
+    "paymentNonce",
+    "proveNftOwnership",
+    "proveCollectionMembership",
+    "readNftOwnership",
+];
+
+/// Every stable `UPPER_SNAKE` machine error code this module can surface — at a throwing export (the
+/// thrown `{ code, message }` object) or as the `code` field of a `{ ok:false, code, error }` result.
+/// Single source of truth for [`capabilities`] and the documented error catalogue. The `*_ERROR`/
+/// argument codes come from the wasm boundary; the rest mirror the core enums
+/// ([`chip35_dl_coin::Error`], [`chip35_dl_coin::GatingError`], [`chip35_dl_coin::PaywallError`]).
+const ERROR_CODES: &[&str] = &[
+    // Wasm-boundary codes.
+    "INVALID_ARGUMENT",
+    "SERDE_ERROR",
+    // Core builder error (`chip35_dl_coin::Error`).
+    "DRIVER_ERROR",
+    "PARSE_ERROR",
+    "PERMISSION_DENIED",
+    // CHIP-0007 metadata validation/serialization (`chip35_dl_coin::MetadataError`).
+    "METADATA_ERROR",
+    // NFT-gating (`chip35_dl_coin::GatingError`).
+    "NOT_AN_NFT",
+    "WRONG_OWNER",
+    "WRONG_COLLECTION",
+    "WRONG_NFT",
+    // Paywall (`chip35_dl_coin::PaywallError`).
+    "WRONG_RECIPIENT",
+    "INSUFFICIENT_AMOUNT",
+    "WRONG_ASSET",
+    "NONCE_MISMATCH",
+];
+
+/// The published package version (= the Cargo crate version = the npm package version). Lets a
+/// consumer/agent feature-gate on exactly which build is loaded at runtime.
+#[wasm_bindgen(js_name = "version")]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// A machine-readable descriptor of this module's surface, for runtime introspection by an agent or
+/// consumer: `{ name, version, builders, errorCodes }`. `builders` is every exported builder/helper
+/// (camelCase JS names); `errorCodes` is the catalogue of stable `UPPER_SNAKE` codes a caller may
+/// branch on (thrown as `{ code, message }`, or carried as the `code` field of a `{ ok, code?, error? }`
+/// result). One call yields the version + the full surface with zero out-of-band knowledge.
+#[wasm_bindgen(js_name = "capabilities", unchecked_return_type = "Capabilities")]
+pub fn capabilities() -> JsValue {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Capabilities {
+        name: &'static str,
+        version: String,
+        builders: &'static [&'static str],
+        error_codes: &'static [&'static str],
+    }
+    // `to_js` cannot fail for this owned, plain struct; fall back to NULL defensively.
+    to_js(&Capabilities {
+        name: PACKAGE_NAME,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        builders: BUILDERS,
+        error_codes: ERROR_CODES,
+    })
+    .unwrap_or(JsValue::NULL)
+}
+
 use crate::types::{
-    bytes32, coin_spends_to_js, coins_from_js, delegated_puzzles_from_js, from_js, public_key,
-    signature, to_js, DataStore, DelegatedPuzzle, SuccessResponse,
+    bytes32, coin_spends_to_js, coins_from_js, delegated_puzzles_from_js, from_js, js_err,
+    js_err_from, public_key, signature, to_js, DataStore, DelegatedPuzzle, SuccessResponse,
 };
 use chip35_dl_coin::{
     add_fee as core_add_fee, admin_delegated_puzzle_from_key as core_admin_dp,
@@ -45,7 +150,10 @@ use chip35_dl_coin::{
 /// Build the **Admin** delegated puzzle for a 48-byte synthetic public key (a hub Teams admin).
 /// An admin may update the store AND change delegation (add/remove writers — i.e. revoke a deploy
 /// token), but cannot transfer ownership. Returns a `DelegatedPuzzle` (`{ adminInnerPuzzleHash }`).
-#[wasm_bindgen(js_name = "adminDelegatedPuzzleFromKey")]
+#[wasm_bindgen(
+    js_name = "adminDelegatedPuzzleFromKey",
+    unchecked_return_type = "DelegatedPuzzle"
+)]
 pub fn admin_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue, JsValue> {
     let dp = core_admin_dp(&public_key(synthetic_key)?);
     to_js(&DelegatedPuzzle::from_native(&dp)?)
@@ -56,7 +164,10 @@ pub fn admin_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue, 
 /// WITHOUT the owner seed, but may NOT change delegation or transfer ownership. Add it to a store
 /// to issue the token; replace the store's delegated set to revoke it. Returns a `DelegatedPuzzle`
 /// (`{ writerInnerPuzzleHash }`).
-#[wasm_bindgen(js_name = "writerDelegatedPuzzleFromKey")]
+#[wasm_bindgen(
+    js_name = "writerDelegatedPuzzleFromKey",
+    unchecked_return_type = "DelegatedPuzzle"
+)]
 pub fn writer_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue, JsValue> {
     let dp = core_writer_dp(&public_key(synthetic_key)?);
     to_js(&DelegatedPuzzle::from_native(&dp)?)
@@ -65,7 +176,10 @@ pub fn writer_delegated_puzzle_from_key(synthetic_key: &[u8]) -> Result<JsValue,
 /// Build the **Oracle** delegated puzzle: anyone may spend the store for the fixed `oracle_fee`
 /// (mojos) paid to the 32-byte `oracle_puzzle_hash`. Returns a `DelegatedPuzzle`
 /// (`{ oraclePaymentPuzzleHash, oracleFee }`).
-#[wasm_bindgen(js_name = "oracleDelegatedPuzzle")]
+#[wasm_bindgen(
+    js_name = "oracleDelegatedPuzzle",
+    unchecked_return_type = "DelegatedPuzzle"
+)]
 pub fn oracle_delegated_puzzle(
     oracle_puzzle_hash: &[u8],
     oracle_fee: u64,
@@ -87,33 +201,32 @@ pub fn digstore_owner_hint(owner_puzzle_hash: &[u8]) -> Result<Vec<u8>, JsValue>
 /// creating spend from a full node, rebuild the DataStore here, then meltStore() it.
 /// `coin_spend` is the wasm CoinSpend shape (Uint8Array fields); `prev_delegated_puzzles` is
 /// the parent's delegated-puzzle list ([] for an owner-only store).
-#[wasm_bindgen(js_name = "dataStoreFromSpend")]
+#[wasm_bindgen(js_name = "dataStoreFromSpend", unchecked_return_type = "DataStore")]
 pub fn data_store_from_spend(
-    coin_spend: JsValue,
-    prev_delegated_puzzles: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "CoinSpend")] coin_spend: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DelegatedPuzzle[]")] prev_delegated_puzzles: JsValue,
 ) -> Result<JsValue, JsValue> {
     let cs: crate::types::CoinSpend = from_js(coin_spend)?;
     let prev = delegated_puzzles_from_js(prev_delegated_puzzles)?;
-    let ds = core_datastore_from_spend(cs.to_native()?, prev)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let ds = core_datastore_from_spend(cs.to_native()?, prev).map_err(js_err_from)?;
     to_js(&DataStore::from_native(&ds)?)
 }
 
 /// Build the spend bundle that launches a new DataLayer store singleton (see
 /// [`chip35_dl_coin::mint_store`]). `program_hash` is an optional 32-byte size-proof; the rest of
 /// the JS values mirror the core builder. Returns a `SuccessResponse` (`coinSpends` + `newStore`).
-#[wasm_bindgen(js_name = "mintStore")]
+#[wasm_bindgen(js_name = "mintStore", unchecked_return_type = "SuccessResponse")]
 #[allow(clippy::too_many_arguments)]
 pub fn mint_store(
     minter_synthetic_key: &[u8],
-    selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
     root_hash: &[u8],
     label: Option<String>,
     description: Option<String>,
     bytes: Option<u64>,
     program_hash: Option<Vec<u8>>,
     owner_puzzle_hash: &[u8],
-    delegated_puzzles: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DelegatedPuzzle[]")] delegated_puzzles: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
     let program_hash = match program_hash {
@@ -132,17 +245,17 @@ pub fn mint_store(
         delegated_puzzles_from_js(delegated_puzzles)?,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
 /// Exercise a store's oracle delegated puzzle (see [`chip35_dl_coin::oracle_spend`]). The spender
 /// pays the oracle fee plus `fee` from `selected_coins`. Returns a `SuccessResponse`.
-#[wasm_bindgen(js_name = "oracleSpend")]
+#[wasm_bindgen(js_name = "oracleSpend", unchecked_return_type = "SuccessResponse")]
 pub fn oracle_spend(
     spender_synthetic_key: &[u8],
-    selected_coins: JsValue,
-    store: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DataStore")] store: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
     let store: DataStore = from_js(store)?;
@@ -152,27 +265,33 @@ pub fn oracle_spend(
         store.to_native()?,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
 /// Burn (melt) a store singleton (see [`chip35_dl_coin::melt_store`]). Owner-authorized only.
 /// Returns the melt `CoinSpend[]`.
-#[wasm_bindgen(js_name = "meltStore")]
-pub fn melt_store(store: JsValue, owner_public_key: &[u8]) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(js_name = "meltStore", unchecked_return_type = "CoinSpend[]")]
+pub fn melt_store(
+    #[wasm_bindgen(unchecked_param_type = "DataStore")] store: JsValue,
+    owner_public_key: &[u8],
+) -> Result<JsValue, JsValue> {
     let store: DataStore = from_js(store)?;
-    let css = core_melt_store(store.to_native()?, public_key(owner_public_key)?)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let css =
+        core_melt_store(store.to_native()?, public_key(owner_public_key)?).map_err(js_err_from)?;
     coin_spends_to_js(&css)
 }
 
 /// Update a store's metadata (see [`chip35_dl_coin::update_store_metadata`]). Exactly one of
 /// `owner_public_key`, `admin_public_key`, `writer_public_key` must be provided — it selects the
 /// authorizing role. Returns a `SuccessResponse`.
-#[wasm_bindgen(js_name = "updateStoreMetadata")]
+#[wasm_bindgen(
+    js_name = "updateStoreMetadata",
+    unchecked_return_type = "SuccessResponse"
+)]
 #[allow(clippy::too_many_arguments)]
 pub fn update_store_metadata(
-    store: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DataStore")] store: JsValue,
     new_root_hash: &[u8],
     new_label: Option<String>,
     new_description: Option<String>,
@@ -188,7 +307,8 @@ pub fn update_store_metadata(
             (Some(pk), None, None) => DataStoreInnerSpend::Owner(public_key(pk)?),
             (None, Some(pk), None) => DataStoreInnerSpend::Admin(public_key(pk)?),
             (None, None, Some(pk)) => DataStoreInnerSpend::Writer(public_key(pk)?),
-            _ => return Err(JsValue::from_str(
+            _ => return Err(js_err(
+                "INVALID_ARGUMENT",
                 "Exactly one of ownerPublicKey, adminPublicKey, writerPublicKey must be provided",
             )),
         };
@@ -205,7 +325,7 @@ pub fn update_store_metadata(
         new_program_hash,
         inner,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
@@ -213,11 +333,14 @@ pub fn update_store_metadata(
 /// [`chip35_dl_coin::update_store_ownership`]). Omitting `new_owner_puzzle_hash` keeps the
 /// current owner. Exactly one of `owner_public_key`/`admin_public_key` must be provided. Returns
 /// a `SuccessResponse`.
-#[wasm_bindgen(js_name = "updateStoreOwnership")]
+#[wasm_bindgen(
+    js_name = "updateStoreOwnership",
+    unchecked_return_type = "SuccessResponse"
+)]
 pub fn update_store_ownership(
-    store: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DataStore")] store: JsValue,
     new_owner_puzzle_hash: Option<Vec<u8>>,
-    new_delegated_puzzles: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "DelegatedPuzzle[]")] new_delegated_puzzles: JsValue,
     owner_public_key: Option<Vec<u8>>,
     admin_public_key: Option<Vec<u8>>,
 ) -> Result<JsValue, JsValue> {
@@ -231,7 +354,8 @@ pub fn update_store_ownership(
         (Some(pk), None) => DataStoreInnerSpend::Owner(public_key(pk)?),
         (None, Some(pk)) => DataStoreInnerSpend::Admin(public_key(pk)?),
         _ => {
-            return Err(JsValue::from_str(
+            return Err(js_err(
+                "INVALID_ARGUMENT",
                 "Exactly one of ownerPublicKey, adminPublicKey must be provided",
             ))
         }
@@ -242,14 +366,16 @@ pub fn update_store_ownership(
         delegated_puzzles_from_js(new_delegated_puzzles)?,
         inner,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     to_js(&SuccessResponse::from_native(&resp)?)
 }
 
 /// Serialize a spend bundle (`{coinSpends, aggregatedSignature}`) to its hex wire encoding
 /// (see [`chip35_dl_coin::spend_bundle_to_hex`]).
 #[wasm_bindgen(js_name = "spendBundleToHex")]
-pub fn spend_bundle_to_hex(spend_bundle: JsValue) -> Result<String, JsValue> {
+pub fn spend_bundle_to_hex(
+    #[wasm_bindgen(unchecked_param_type = "SpendBundle")] spend_bundle: JsValue,
+) -> Result<String, JsValue> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct SbIn {
@@ -264,14 +390,17 @@ pub fn spend_bundle_to_hex(spend_bundle: JsValue) -> Result<String, JsValue> {
         .map(crate::types::CoinSpend::to_native)
         .collect::<Result<Vec<_>, _>>()?;
     let bundle = RustSpendBundle::new(css, signature(&sb.aggregated_signature)?);
-    core_sb_to_hex(&bundle).map_err(|e| JsValue::from_str(&e.to_string()))
+    core_sb_to_hex(&bundle).map_err(js_err_from)
 }
 
 /// Decode a hex-encoded spend bundle into its `CoinSpend[]` (see
 /// [`chip35_dl_coin::hex_spend_bundle_to_coin_spends`]).
-#[wasm_bindgen(js_name = "hexSpendBundleToCoinSpends")]
+#[wasm_bindgen(
+    js_name = "hexSpendBundleToCoinSpends",
+    unchecked_return_type = "CoinSpend[]"
+)]
 pub fn hex_spend_bundle_to_coin_spends(hex: String) -> Result<JsValue, JsValue> {
-    let css = core_hex_to_css(&hex).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let css = core_hex_to_css(&hex).map_err(js_err_from)?;
     coin_spends_to_js(&css)
 }
 
@@ -279,11 +408,11 @@ pub fn hex_spend_bundle_to_coin_spends(hex: String) -> Result<JsValue, JsValue> 
 /// concurrent spend of `assert_coin_ids` (see [`chip35_dl_coin::add_fee`]). Lets a fee-less
 /// singleton op (update/melt) carry a network fee. `selected_coins` is `Coin[]`,
 /// `assert_coin_ids` is `Uint8Array[]` of 32-byte coin ids. Returns `CoinSpend[]`.
-#[wasm_bindgen(js_name = "addFee")]
+#[wasm_bindgen(js_name = "addFee", unchecked_return_type = "CoinSpend[]")]
 pub fn add_fee(
     spender_synthetic_key: &[u8],
-    selected_coins: JsValue,
-    assert_coin_ids: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Uint8Array[]")] assert_coin_ids: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
     let ids_raw: Vec<serde_bytes::ByteBuf> = from_js(assert_coin_ids)?;
@@ -297,7 +426,7 @@ pub fn add_fee(
         ids,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     coin_spends_to_js(&css)
 }
 
@@ -328,16 +457,21 @@ pub fn sha256(bytes: &[u8]) -> Vec<u8> {
 /// Build a CHIP-0007 metadata document from a JS object and return its canonical JSON + the
 /// `metadata_hash` (sha256 of that JSON). De-dupes the hand-computed badge metadata: callers stop
 /// hand-rolling SHA-256. Returns `{ json: string, metadataHash: Uint8Array }`. Validates schema.
-#[wasm_bindgen(js_name = "buildChip0007Metadata")]
-pub fn build_chip0007_metadata(metadata: JsValue) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(
+    js_name = "buildChip0007Metadata",
+    unchecked_return_type = "Chip0007MetadataResult"
+)]
+pub fn build_chip0007_metadata(
+    #[wasm_bindgen(unchecked_param_type = "Chip0007Metadata")] metadata: JsValue,
+) -> Result<JsValue, JsValue> {
     let md: JsChip0007Metadata = from_js(metadata)?;
     let native = md.to_native();
     native
         .validate_schema()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        .map_err(|e| js_err("METADATA_ERROR", e.to_string()))?;
     let json = native
         .to_canonical_json()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        .map_err(|e| js_err("METADATA_ERROR", e.to_string()))?;
     let hash = core_sha256(json.as_bytes()).to_vec();
 
     #[derive(serde::Serialize)]
@@ -357,8 +491,14 @@ pub fn build_chip0007_metadata(metadata: JsValue) -> Result<JsValue, JsValue> {
 /// on-chain hash matches `sha256(bytes)` — the URI↔hash agreement check (#36). `assets` is
 /// `{ dataBytes?, dataHash?, metadataBytes?, metadataHash?, licenseBytes?, licenseHash? }` (all
 /// `Uint8Array`). Returns `{ ok: bool, errors: string[] }`.
-#[wasm_bindgen(js_name = "validateChip0007")]
-pub fn validate_chip0007(metadata: JsValue, assets: JsValue) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(
+    js_name = "validateChip0007",
+    unchecked_return_type = "ValidationResult"
+)]
+pub fn validate_chip0007(
+    #[wasm_bindgen(unchecked_param_type = "Chip0007Metadata")] metadata: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Chip0007Assets")] assets: JsValue,
+) -> Result<JsValue, JsValue> {
     #[derive(serde::Deserialize, Default)]
     #[serde(rename_all = "camelCase")]
     struct Assets {
@@ -418,11 +558,11 @@ pub fn validate_chip0007(metadata: JsValue, assets: JsValue) -> Result<JsValue, 
 /// Mint a single NFT whose media lives in a DIG capsule (`dig://` URN + https gateway fallback URIs,
 /// hashes computed from real bytes). `params` is `NftMintParams`. Returns
 /// `{ coinSpends, launcherId, nftCoin }`.
-#[wasm_bindgen(js_name = "mintNft")]
+#[wasm_bindgen(js_name = "mintNft", unchecked_return_type = "NftMintResult")]
 pub fn mint_nft(
     minter_synthetic_key: &[u8],
-    selected_coins: JsValue,
-    params: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "NftMintParams")] params: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
     let params: JsNftMintParams = from_js(params)?;
@@ -432,7 +572,7 @@ pub fn mint_nft(
         params.to_native()?,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -455,10 +595,10 @@ pub fn mint_nft(
 
 /// Create a DID (creator identity) singleton. Returns
 /// `{ coinSpends, launcherId, innerPuzzleHash, didCoin }`.
-#[wasm_bindgen(js_name = "createDid")]
+#[wasm_bindgen(js_name = "createDid", unchecked_return_type = "CreateDidResult")]
 pub fn create_did(
     minter_synthetic_key: &[u8],
-    selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
     let resp = core_create_did(
@@ -466,7 +606,7 @@ pub fn create_did(
         coins_from_js(selected_coins)?,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -491,10 +631,10 @@ pub fn create_did(
 }
 
 /// Issue a single-issuance (fixed-supply) CAT. Returns `{ coinSpends, assetId, catCoins }`.
-#[wasm_bindgen(js_name = "issueCat")]
+#[wasm_bindgen(js_name = "issueCat", unchecked_return_type = "IssueCatResult")]
 pub fn issue_cat(
     issuer_synthetic_key: &[u8],
-    selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
     amount: u64,
     fee: u64,
 ) -> Result<JsValue, JsValue> {
@@ -504,7 +644,7 @@ pub fn issue_cat(
         amount,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -532,8 +672,14 @@ pub fn issue_cat(
 /// Generate per-item CHIP-0007 metadata documents for a collection from a parsed traits manifest
 /// (#34). `collection` is `Collection`; `items` is `ManifestItem[]`. Returns
 /// `Chip0007Metadata[]` (the off-chain JSON docs; the caller hashes + writes them into each capsule).
-#[wasm_bindgen(js_name = "generateItemMetadata")]
-pub fn generate_item_metadata(collection: JsValue, items: JsValue) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(
+    js_name = "generateItemMetadata",
+    unchecked_return_type = "Chip0007Metadata[]"
+)]
+pub fn generate_item_metadata(
+    #[wasm_bindgen(unchecked_param_type = "Collection")] collection: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "ManifestItem[]")] items: JsValue,
+) -> Result<JsValue, JsValue> {
     let col: JsCollection = from_js(collection)?;
     let items: Vec<JsManifestItem> = from_js(items)?;
     let native_col = col.to_native()?;
@@ -549,12 +695,12 @@ pub fn generate_item_metadata(collection: JsValue, items: JsValue) -> Result<JsV
 /// Bulk-mint every item in a parsed traits manifest into a collection, attributed to a DID (#34).
 /// `did` is the DID coin + identifiers `{ launcherId, innerPuzzleHash, didCoin }` (e.g. from a prior
 /// `createDid`, fetched on-chain). Returns `{ coinSpends, launcherIds }`.
-#[wasm_bindgen(js_name = "bulkMint")]
+#[wasm_bindgen(js_name = "bulkMint", unchecked_return_type = "BulkMintResult")]
 pub fn bulk_mint(
     minter_synthetic_key: &[u8],
-    did: JsValue,
-    collection: JsValue,
-    items: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Did")] did: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Collection")] collection: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "ManifestItem[]")] items: JsValue,
     recipient_puzzle_hash: &[u8],
 ) -> Result<JsValue, JsValue> {
     let col: JsCollection = from_js(collection)?;
@@ -572,7 +718,7 @@ pub fn bulk_mint(
         &native_items,
         bytes32(recipient_puzzle_hash)?,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -641,7 +787,9 @@ fn did_from_js(value: JsValue) -> Result<RustDid, JsValue> {
 
 /// Encode a spend bundle (`{coinSpends, aggregatedSignature}`) into canonical offer text.
 #[wasm_bindgen(js_name = "encodeOffer")]
-pub fn encode_offer(spend_bundle: JsValue) -> Result<String, JsValue> {
+pub fn encode_offer(
+    #[wasm_bindgen(unchecked_param_type = "SpendBundle")] spend_bundle: JsValue,
+) -> Result<String, JsValue> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct SbIn {
@@ -656,13 +804,13 @@ pub fn encode_offer(spend_bundle: JsValue) -> Result<String, JsValue> {
         .map(crate::types::CoinSpend::to_native)
         .collect::<Result<Vec<_>, _>>()?;
     let bundle = RustSpendBundle::new(css, signature(&sb.aggregated_signature)?);
-    core_encode_offer(&bundle).map_err(|e| JsValue::from_str(&e.to_string()))
+    core_encode_offer(&bundle).map_err(js_err_from)
 }
 
 /// Decode canonical offer text into its spend bundle `{ coinSpends, aggregatedSignature }`.
-#[wasm_bindgen(js_name = "decodeOffer")]
+#[wasm_bindgen(js_name = "decodeOffer", unchecked_return_type = "SpendBundle")]
 pub fn decode_offer(text: String) -> Result<JsValue, JsValue> {
-    let bundle = core_decode_offer(&text).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let bundle = core_decode_offer(&text).map_err(js_err_from)?;
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Out {
@@ -710,10 +858,10 @@ pub fn payment_nonce(request_bytes: &[u8]) -> Vec<u8> {
 /// Build the coin spends for a buyer to pay the dapp owner `amount` mojos of **XCH** (#46 payment).
 /// `selected_coins` is the buyer's XCH `Coin[]`; `nonce` is the 32-byte unlock nonce. Returns
 /// `{ coinSpends, receipt }` where `receipt` is the `PaymentReceipt` the paywall later verifies.
-#[wasm_bindgen(js_name = "buildPayment")]
+#[wasm_bindgen(js_name = "buildPayment", unchecked_return_type = "PaymentResponse")]
 pub fn build_payment(
     buyer_synthetic_key: &[u8],
-    selected_coins: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
     owner_puzzle_hash: &[u8],
     amount: u64,
     nonce: &[u8],
@@ -727,7 +875,7 @@ pub fn build_payment(
         bytes32(nonce)?,
         fee,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     payment_response_to_js(&resp)
 }
 
@@ -736,10 +884,10 @@ pub fn build_payment(
 /// `chip0002_getAssetCoins` returns them); `nonce` is the 32-byte unlock nonce. The CAT ring nets to
 /// zero, so carry any XCH network fee with a separate XCH coin via `addFee` asserting the lead CAT
 /// coin id. Returns `{ coinSpends, receipt }`.
-#[wasm_bindgen(js_name = "buildCatPayment")]
+#[wasm_bindgen(js_name = "buildCatPayment", unchecked_return_type = "PaymentResponse")]
 pub fn build_cat_payment(
     buyer_synthetic_key: &[u8],
-    selected_cats: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Cat[]")] selected_cats: JsValue,
     owner_puzzle_hash: &[u8],
     amount: u64,
     nonce: &[u8],
@@ -756,7 +904,7 @@ pub fn build_cat_payment(
         amount,
         bytes32(nonce)?,
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    .map_err(js_err_from)?;
     payment_response_to_js(&resp)
 }
 
@@ -783,12 +931,15 @@ fn payment_response_to_js(resp: &chip35_dl_coin::PaymentResponse) -> Result<JsVa
 /// that nonce. `observed` is an `ObservedPayment` the dapp filled in after reading the owner's coin;
 /// `required_asset` is a `PaymentAsset` (`{xch:true}` or `{assetId}`). Returns `{ ok, error? }` —
 /// `ok:true` grants access, otherwise `error` is the human-readable denial reason.
-#[wasm_bindgen(js_name = "verifyPaymentReceipt")]
+#[wasm_bindgen(
+    js_name = "verifyPaymentReceipt",
+    unchecked_return_type = "PaywallResult"
+)]
 pub fn verify_payment_receipt(
-    observed: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "ObservedPayment")] observed: JsValue,
     owner_puzzle_hash: &[u8],
     min_amount: u64,
-    required_asset: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "PaymentAsset")] required_asset: JsValue,
     require_nonce: Option<Vec<u8>>,
 ) -> Result<JsValue, JsValue> {
     let observed: JsObservedPayment = from_js(observed)?;
@@ -805,16 +956,22 @@ pub fn verify_payment_receipt(
     #[derive(serde::Serialize)]
     struct Out {
         ok: bool,
+        /// Stable `UPPER_SNAKE` machine code on denial (a `PaywallError` code) — branch on this, not
+        /// the prose `error`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     }
     to_js(&match result {
         Ok(()) => Out {
             ok: true,
+            code: None,
             error: None,
         },
         Err(e) => Out {
             ok: false,
+            code: Some(e.code()),
             error: Some(e.to_string()),
         },
     })
@@ -825,9 +982,9 @@ pub fn verify_payment_receipt(
 /// gating). `parent_spend` is the wasm `CoinSpend` shape. Returns `{ ok, proof?, error? }` — on
 /// success `proof` is the `NftOwnershipProof` (launcher id, owner, attributed DID, current coin id);
 /// the caller still confirms `proof.nftCoinId` is unspent on-chain for liveness.
-#[wasm_bindgen(js_name = "proveNftOwnership")]
+#[wasm_bindgen(js_name = "proveNftOwnership", unchecked_return_type = "GatingResult")]
 pub fn prove_nft_ownership(
-    parent_spend: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "CoinSpend")] parent_spend: JsValue,
     claimed_owner_puzzle_hash: &[u8],
     required_nft: Option<Vec<u8>>,
 ) -> Result<JsValue, JsValue> {
@@ -843,9 +1000,12 @@ pub fn prove_nft_ownership(
 
 /// Prove an NFT held by `claimed_owner_puzzle_hash` is a member of the collection/creator identified
 /// by `required_did` (#46 collection-gating). Returns `{ ok, proof?, error? }`.
-#[wasm_bindgen(js_name = "proveCollectionMembership")]
+#[wasm_bindgen(
+    js_name = "proveCollectionMembership",
+    unchecked_return_type = "GatingResult"
+)]
 pub fn prove_collection_membership(
-    parent_spend: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "CoinSpend")] parent_spend: JsValue,
     claimed_owner_puzzle_hash: &[u8],
     required_did: &[u8],
 ) -> Result<JsValue, JsValue> {
@@ -861,8 +1021,10 @@ pub fn prove_collection_membership(
 /// Read an NFT's ownership facts (owner, attributed DID, launcher id, current coin id) from
 /// `parent_spend` WITHOUT applying a gate — for dapps that want to decide in their own code.
 /// Returns `{ ok, proof?, error? }`.
-#[wasm_bindgen(js_name = "readNftOwnership")]
-pub fn read_nft_ownership(parent_spend: JsValue) -> Result<JsValue, JsValue> {
+#[wasm_bindgen(js_name = "readNftOwnership", unchecked_return_type = "GatingResult")]
+pub fn read_nft_ownership(
+    #[wasm_bindgen(unchecked_param_type = "CoinSpend")] parent_spend: JsValue,
+) -> Result<JsValue, JsValue> {
     let cs: crate::types::CoinSpend = from_js(parent_spend)?;
     gating_result_to_js(core_read_nft(&cs.to_native()?))
 }
@@ -876,6 +1038,10 @@ fn gating_result_to_js(
         ok: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         proof: Option<JsNftOwnershipProof>,
+        /// Stable `UPPER_SNAKE` machine code on failure (a `GatingError` code) — branch on this, not
+        /// the prose `error`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'static str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     }
@@ -883,11 +1049,13 @@ fn gating_result_to_js(
         Ok(p) => Out {
             ok: true,
             proof: Some(JsNftOwnershipProof::from_native(&p)),
+            code: None,
             error: None,
         },
         Err(e) => Out {
             ok: false,
             proof: None,
+            code: Some(e.code()),
             error: Some(e.to_string()),
         },
     })
