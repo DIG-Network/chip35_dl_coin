@@ -252,11 +252,23 @@ export interface CatInfo {
   p2PuzzleHash: Uint8Array;
 }
 
-/** A buyer's CAT coin (as `chip0002_getAssetCoins` returns it) for `buildCatPayment`. */
+/** A buyer's CAT coin (as `chip0002_getAssetCoins` returns it) for `buildCatPayment` / `buildDigStorePayment`. */
 export interface Cat {
   coin: Coin;
   lineageProof?: LineageProof | null;
   info: CatInfo;
+}
+
+/**
+ * The cross-system $DIG-payment constants (mainnet), returned by `digConstants()`. Minting a store is
+ * FREE of $DIG; a CAPSULE (commit / root-advance) pays the per-capsule price in $DIG to
+ * `treasuryInnerPuzzleHash`. Byte-identical across the ecosystem (digstore-chain / hub).
+ */
+export interface DigConstants {
+  /** The DIG CAT asset id (TAIL hash), 32 bytes. */
+  assetId: Uint8Array;
+  /** The DIG treasury's inner (standard) puzzle hash every per-capsule payment settles to, 32 bytes. */
+  treasuryInnerPuzzleHash: Uint8Array;
 }
 
 /** The verifiable description of a payment's on-chain commitment. */

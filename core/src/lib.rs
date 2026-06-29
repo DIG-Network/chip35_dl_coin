@@ -8,6 +8,7 @@
 mod cat;
 mod collection;
 mod did;
+mod dig;
 mod error;
 mod gating;
 mod metadata;
@@ -27,6 +28,15 @@ pub use chia_sdk_driver::{
 };
 
 pub use error::{Error, WalletError};
+
+// DIG-CAT per-capsule store payment (the canonical store-payment builder). Minting a store is FREE
+// of $DIG; a capsule (commit / root-advance) pays the dynamic, USD-pegged per-capsule price in $DIG
+// to the treasury via [`build_dig_store_payment`], concatenated atomically with the root-advance.
+pub use dig::{
+    build_dig_store_payment, dig_treasury_payment_coin, DIG_ASSET_ID,
+    DIG_TREASURY_INNER_PUZZLE_HASH,
+};
+
 pub use store::{
     add_fee, admin_delegated_puzzle_from_key, datastore_from_spend, digstore_owner_hint,
     hex_spend_bundle_to_coin_spends, melt_store, mint_store, oracle_delegated_puzzle, oracle_spend,
