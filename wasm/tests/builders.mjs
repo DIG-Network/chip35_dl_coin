@@ -261,4 +261,48 @@ assert.notEqual(
   "bulk minted items are distinct"
 );
 
+// ===========================================================================
+// Per-capsule $DIG payment (task #111): mint is FREE of $DIG; a capsule (commit) pays the treasury.
+// ===========================================================================
+
+// digConstants: the cross-system DIG asset id + treasury inner puzzle hash.
+const digC = wasm.digConstants();
+assert.equal(digC.assetId.length, 32, "digConstants.assetId 32 bytes");
+assert.equal(
+  Buffer.from(digC.assetId).toString("hex"),
+  "a406d3a9de984d03c9591c10d917593b434d5263cabe2b42f6b367df16832f81",
+  "DIG asset id matches the cross-system contract"
+);
+assert.equal(
+  Buffer.from(digC.treasuryInnerPuzzleHash).toString("hex"),
+  "ec7c304708c7d59c078d5ae098d0dea004decf47fa1cafebb266c10ad6466ce8",
+  "DIG treasury inner puzzle hash matches the cross-system contract"
+);
+
+// A buyer's DIG CAT coin (DIG asset id, owned by ownerPh) for the capsule payment.
+const digCat = {
+  coin: { parentCoinInfo: hexToBytes(f.parentCoinInfoHex), puzzleHash: hexToBytes("06".repeat(32)), amount: 1000000n },
+  info: { assetId: digC.assetId, p2PuzzleHash: ownerPh },
+};
+
+// buildDigStorePayment: pay the dynamic per-capsule price (an INPUT amount) to the treasury.
+const storeId = mint.newStore.launcherId;
+const digPay = wasm.buildDigStorePayment(synthKey, [digCat], storeId, 100000n);
+assert.ok(Array.isArray(digPay) && digPay.length > 0, "buildDigStorePayment returns coin spends");
+
+// digTreasuryPaymentCoin: the exact treasury coin the payment emits (CAT-wrapped, NOT the inner ph).
+const payCoin = wasm.digTreasuryPaymentCoin(digCat, 100000n);
+assert.equal(payCoin.amount, 100000n, "treasury payment coin amount == input");
+assert.notEqual(
+  Buffer.from(payCoin.puzzleHash).toString("hex"),
+  Buffer.from(digC.treasuryInnerPuzzleHash).toString("hex"),
+  "treasury payment coin lands at the DIG-CAT-wrapped ph, not the inner ph"
+);
+
+// Non-DIG CATs are rejected (only $DIG pays a capsule).
+assert.throws(
+  () => wasm.buildDigStorePayment(synthKey, [{ ...digCat, info: { assetId: new Uint8Array(32).fill(0xcd), p2PuzzleHash: ownerPh } }], storeId, 1000n),
+  "buildDigStorePayment rejects a non-DIG CAT"
+);
+
 console.log("All chip35-dl-coin WASM builder checks passed.");
