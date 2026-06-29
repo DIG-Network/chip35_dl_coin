@@ -6,9 +6,9 @@ use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
 use chia_sdk_driver::{Launcher, SpendContext, StandardLayer};
 use chip35_dl_coin::{
     build_bulk_mint, create_did, decode_offer, encode_offer, generate_item_metadata, issue_cat,
-    master_to_wallet_unhardened, mint_nft, sha256, spend_bundle_to_hex, Attribute, Bytes32, Coin,
-    Collection, DidAttribution, Error, ManifestItem, ManifestMedia, NftMediaMetadata,
-    NftMintParams, PublicKey, SecretKey, Signature, SpendBundle,
+    master_to_wallet_unhardened, mint_nft, mint_nft_with_did, sha256, spend_bundle_to_hex,
+    Attribute, Bytes32, Coin, Collection, DidAttribution, Error, ManifestItem, ManifestMedia,
+    NftMediaMetadata, NftMintParams, PublicKey, SecretKey, Signature, SpendBundle,
 };
 
 fn synthetic() -> PublicKey {
@@ -91,6 +91,92 @@ fn mint_nft_with_did_attribution_succeeds() {
     };
     let r = mint_nft(synth, vec![coin(ph, 2)], params, 0).expect("mint with DID");
     assert!(!r.coin_spends.is_empty());
+}
+
+// ---- #38: single NFT mint AUTHORIZED BY + attributed to a creator DID ----
+// mint_nft only adds the TransferNft attribution; the DID must be spent elsewhere to authorize it.
+// mint_nft_with_did composes that DID-acknowledgement spend INTO the mint bundle so the on-chain
+// owner assignment is actually authorized by the creator identity (roadmap #38).
+
+#[test]
+fn mint_nft_with_did_spends_the_did_coin() {
+    let synth = synthetic();
+    let ph = owner_ph(synth);
+
+    // A real DID the creator mints under.
+    let ctx = &mut SpendContext::new();
+    let p2 = StandardLayer::new(synth);
+    let did_lead = coin(ph, 1);
+    let (_c, did) = Launcher::new(did_lead.coin_id(), 1)
+        .create_simple_did(ctx, &p2)
+        .expect("create did");
+    let did_coin_id = did.coin.coin_id();
+
+    let params = NftMintParams {
+        metadata: dig_media(),
+        p2_puzzle_hash: ph,
+        royalty_puzzle_hash: ph,
+        royalty_basis_points: 250,
+        did: None, // the dedicated builder takes the full Did; this field is ignored here
+    };
+
+    let r = mint_nft_with_did(synth, vec![coin(ph, 2)], did, params, 0).expect("mint as did");
+    assert!(!r.coin_spends.is_empty());
+    assert_ne!(r.launcher_id, Bytes32::default());
+    // The creator DID coin MUST be spent in the bundle (authorizing the attribution), not just named.
+    assert!(
+        r.coin_spends
+            .iter()
+            .any(|cs| cs.coin.coin_id() == did_coin_id),
+        "the creator DID coin is spent to authorize the mint"
+    );
+}
+
+#[test]
+fn mint_nft_with_did_is_deterministic() {
+    let synth = synthetic();
+    let ph = owner_ph(synth);
+    let did_lead = coin(ph, 1);
+
+    let build = || {
+        let ctx = &mut SpendContext::new();
+        let p2 = StandardLayer::new(synth);
+        let (_c, did) = Launcher::new(did_lead.coin_id(), 1)
+            .create_simple_did(ctx, &p2)
+            .unwrap();
+        let params = NftMintParams {
+            metadata: dig_media(),
+            p2_puzzle_hash: ph,
+            royalty_puzzle_hash: ph,
+            royalty_basis_points: 250,
+            did: None,
+        };
+        let r = mint_nft_with_did(synth, vec![coin(ph, 2)], did, params, 0).unwrap();
+        spend_bundle_to_hex(&SpendBundle::new(r.coin_spends, Signature::default())).unwrap()
+    };
+    assert_eq!(build(), build(), "DID mint is deterministic for identical inputs");
+}
+
+#[test]
+fn mint_nft_with_did_no_coins_errors() {
+    let synth = synthetic();
+    let ph = owner_ph(synth);
+    let ctx = &mut SpendContext::new();
+    let p2 = StandardLayer::new(synth);
+    let (_c, did) = Launcher::new(coin(ph, 1).coin_id(), 1)
+        .create_simple_did(ctx, &p2)
+        .unwrap();
+    let params = NftMintParams {
+        metadata: dig_media(),
+        p2_puzzle_hash: ph,
+        royalty_puzzle_hash: ph,
+        royalty_basis_points: 0,
+        did: None,
+    };
+    assert!(matches!(
+        mint_nft_with_did(synth, vec![], did, params, 0),
+        Err(Error::Parse(_))
+    ));
 }
 
 #[test]

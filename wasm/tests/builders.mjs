@@ -261,6 +261,21 @@ assert.notEqual(
   "bulk minted items are distinct"
 );
 
+// --- #38: mintNftWithDid (single mint authorized by + attributed to a creator DID) ---
+const didMint = wasm.mintNftWithDid(synthKey, [coin], didForMint, nftParams, 0n);
+assert.ok(didMint.coinSpends.length > 0, "mintNftWithDid coinSpends");
+assert.equal(didMint.launcherId.length, 32, "mintNftWithDid launcherId 32 bytes");
+// The DID coin must be SPENT in the bundle (it authorizes the attribution), not merely named.
+// Compare the raw Coin fields (parent/puzzleHash/amount) — no coinId helper needed.
+const sameCoin = (a, b) =>
+  Buffer.from(a.parentCoinInfo).equals(Buffer.from(b.parentCoinInfo)) &&
+  Buffer.from(a.puzzleHash).equals(Buffer.from(b.puzzleHash)) &&
+  BigInt(a.amount) === BigInt(b.amount);
+assert.ok(
+  didMint.coinSpends.some((cs) => sameCoin(cs.coin, did.didCoin)),
+  "mintNftWithDid spends the creator DID coin"
+);
+
 // ===========================================================================
 // Per-capsule $DIG payment (task #111): mint is FREE of $DIG; a capsule (commit) pays the treasury.
 // ===========================================================================
