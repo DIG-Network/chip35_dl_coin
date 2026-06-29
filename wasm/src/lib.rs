@@ -39,6 +39,10 @@ const BUILDERS: &[&str] = &[
     "dataStoreFromSpend",
     "spendBundleToHex",
     "hexSpendBundleToCoinSpends",
+    // Per-capsule $DIG payment: mint is free of $DIG; a capsule (commit) pays the treasury.
+    "buildDigStorePayment",
+    "digTreasuryPaymentCoin",
+    "digConstants",
     // DataStore delegation (hub Teams #43 + revocable deploy tokens #17).
     "adminDelegatedPuzzleFromKey",
     "writerDelegatedPuzzleFromKey",
@@ -129,7 +133,9 @@ use crate::types::{
 };
 use chip35_dl_coin::{
     add_fee as core_add_fee, admin_delegated_puzzle_from_key as core_admin_dp,
+    build_dig_store_payment as core_build_dig_store_payment,
     datastore_from_spend as core_datastore_from_spend,
+    dig_treasury_payment_coin as core_dig_treasury_payment_coin,
     digstore_owner_hint as core_digstore_owner_hint,
     hex_spend_bundle_to_coin_spends as core_hex_to_css, melt_store as core_melt_store,
     mint_store as core_mint_store, oracle_delegated_puzzle as core_oracle_dp,
@@ -428,6 +434,81 @@ pub fn add_fee(
     )
     .map_err(js_err_from)?;
     coin_spends_to_js(&css)
+}
+
+// ---------------------------------------------------------------------------
+// Per-capsule $DIG payment (task #111). Minting a store is FREE of $DIG; a CAPSULE (commit /
+// root-advance) pays the dynamic, USD-pegged per-capsule price in $DIG to the treasury. The commit
+// path concatenates `buildDigStorePayment`'s CAT spends with `updateStoreMetadata`'s singleton spend
+// into ONE bundle and signs them together (atomic). `mintStore` never carries a DIG payment.
+// ---------------------------------------------------------------------------
+
+/// Build the (UNSIGNED) DIG-CAT coin spends that pay `amount` base units of $DIG to the DIG treasury
+/// for a capsule (commit) — the canonical per-capsule store payment (see
+/// [`chip35_dl_coin::build_dig_store_payment`]). `dig_cats` is the buyer's `Cat[]` of the DIG asset
+/// (as `chip0002_getAssetCoins` returns them); `store_id` is the capsule's launcher id (= store id);
+/// `amount` is the dynamic, USD-pegged per-capsule price in DIG base units (an INPUT — never
+/// hardcoded). The caller concatenates the returned `CoinSpend[]` with the commit's
+/// `updateStoreMetadata` spends and signs the whole bundle. MINT does NOT call this (mint is free of
+/// $DIG). Returns `CoinSpend[]`.
+#[wasm_bindgen(
+    js_name = "buildDigStorePayment",
+    unchecked_return_type = "CoinSpend[]"
+)]
+pub fn build_dig_store_payment(
+    buyer_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Cat[]")] dig_cats: JsValue,
+    store_id: &[u8],
+    amount: u64,
+) -> Result<JsValue, JsValue> {
+    let cats: Vec<crate::monetization_types::Cat> = from_js(dig_cats)?;
+    let native_cats = cats
+        .iter()
+        .map(crate::monetization_types::Cat::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let css = core_build_dig_store_payment(
+        public_key(buyer_synthetic_key)?,
+        native_cats,
+        bytes32(store_id)?,
+        amount,
+    )
+    .map_err(js_err_from)?;
+    coin_spends_to_js(&css)
+}
+
+/// The DIG-CAT payment coin a capsule (commit) pays to the treasury — what `buildDigStorePayment`
+/// emits (see [`chip35_dl_coin::dig_treasury_payment_coin`]). `lead_dig_cat` is the lead DIG `Cat`
+/// (its id is the new coin's parent); `amount` is the payment in DIG base units. Lets a caller pin /
+/// verify the exact expected treasury coin without re-deriving the CAT wrap. Returns a `Coin`.
+#[wasm_bindgen(js_name = "digTreasuryPaymentCoin", unchecked_return_type = "Coin")]
+pub fn dig_treasury_payment_coin(
+    #[wasm_bindgen(unchecked_param_type = "Cat")] lead_dig_cat: JsValue,
+    amount: u64,
+) -> Result<JsValue, JsValue> {
+    let cat: crate::monetization_types::Cat = from_js(lead_dig_cat)?;
+    let coin = core_dig_treasury_payment_coin(&cat.to_native()?, amount);
+    to_js(&crate::types::Coin::from_native(&coin))
+}
+
+/// The cross-system $DIG-payment constants (mainnet): the DIG CAT `assetId` and the treasury INNER
+/// `puzzleHash` every per-capsule payment settles to. Byte-identical across the ecosystem
+/// (digstore-chain / hub). Lets an agent/consumer read them at runtime instead of hardcoding. Returns
+/// `{ assetId: Uint8Array, treasuryInnerPuzzleHash: Uint8Array }`.
+#[wasm_bindgen(js_name = "digConstants", unchecked_return_type = "DigConstants")]
+pub fn dig_constants() -> JsValue {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        #[serde(with = "serde_bytes")]
+        asset_id: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        treasury_inner_puzzle_hash: Vec<u8>,
+    }
+    to_js(&Out {
+        asset_id: chip35_dl_coin::DIG_ASSET_ID.to_vec(),
+        treasury_inner_puzzle_hash: chip35_dl_coin::DIG_TREASURY_INNER_PUZZLE_HASH.to_vec(),
+    })
+    .unwrap_or(JsValue::NULL)
 }
 
 // ---------------------------------------------------------------------------
