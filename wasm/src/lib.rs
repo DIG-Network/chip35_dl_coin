@@ -7,6 +7,7 @@
 use wasm_bindgen::prelude::*;
 
 mod asset_types;
+mod lazy_mint_types;
 mod monetization_types;
 mod ts;
 mod types;
@@ -67,6 +68,9 @@ const BUILDERS: &[&str] = &[
     "proveNftOwnership",
     "proveCollectionMembership",
     "readNftOwnership",
+    // Trustless lazy mint / mint-on-claim (#40): commit a collection once (DID), then anyone claims.
+    "buildLazyMintCommit",
+    "buildLazyMintClaim",
 ];
 
 /// Every stable `UPPER_SNAKE` machine error code this module can surface — at a throwing export (the
@@ -1185,5 +1189,151 @@ fn gating_result_to_js(
             code: Some(e.code()),
             error: Some(e.to_string()),
         },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Trustless lazy mint / mint-on-claim wasm exports (roadmap #40). The creator DID precommits a whole
+// collection ONCE (buildLazyMintCommit); afterwards ANYONE claims an individual NFT on demand with no
+// further DID involvement (buildLazyMintClaim). Thin wrappers: deserialize the JS shape, call the core
+// builder, reserialize. The `descriptor` a commit returns is an OPAQUE JSON string the caller persists
+// and hands straight back to a claim.
+// ---------------------------------------------------------------------------
+
+use crate::lazy_mint_types::{
+    descriptor_from_json, descriptor_to_json, LazyMintItem as JsLazyMintItem,
+    LazyMintPolicy as JsLazyMintPolicy, MerkleMembershipProof as JsMerkleProof,
+};
+use chip35_dl_coin::{
+    build_lazy_mint_claim as core_lazy_claim, build_lazy_mint_commit as core_lazy_commit,
+};
+
+/// The creator DID spends ONCE to precommit `items` into `collection`, attributed by lineage to `did`
+/// (#40). `did` is the same `Did` shape `mintNftWithDid`/`bulkMint` accept (the DID's current on-chain
+/// coin + identifiers). `policy` is `{ directMint: true }` (free) or
+/// `{ paymentGated: { price, asset, payee } }` (payment ENFORCEMENT deferred — see the docs).
+/// `allowlistRoot` is an optional 32-byte merkle root (on-chain enforcement deferred). Returns
+/// `{ coinSpends, root, launcherIds, commitCoins, descriptor }` — `descriptor` is the opaque JSON
+/// string a claimer passes back to `buildLazyMintClaim`.
+#[wasm_bindgen(
+    js_name = "buildLazyMintCommit",
+    unchecked_return_type = "LazyMintCommitResult"
+)]
+pub fn build_lazy_mint_commit(
+    minter_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Did")] did: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Collection")] collection: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "LazyMintItem[]")] items: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "LazyMintPolicy")] policy: JsValue,
+    allowlist_root: Option<Vec<u8>>,
+) -> Result<JsValue, JsValue> {
+    let col: JsCollection = from_js(collection)?;
+    let items: Vec<JsLazyMintItem> = from_js(items)?;
+    let native_items = items
+        .iter()
+        .map(JsLazyMintItem::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let policy: JsLazyMintPolicy = from_js(policy)?;
+    let native_did = did_from_js(did)?;
+    let allow_root = match allowlist_root {
+        Some(r) => Some(bytes32(&r)?),
+        None => None,
+    };
+
+    let resp = core_lazy_commit(
+        public_key(minter_synthetic_key)?,
+        native_did,
+        &col.to_native()?,
+        &native_items,
+        policy.to_native()?,
+        allow_root,
+    )
+    .map_err(js_err_from)?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        #[serde(with = "serde_bytes")]
+        root: Vec<u8>,
+        launcher_ids: Vec<serde_bytes::ByteBuf>,
+        commit_coins: Vec<crate::types::Coin>,
+        descriptor: String,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        root: resp.root.to_vec(),
+        launcher_ids: resp
+            .launcher_ids
+            .iter()
+            .map(|id| serde_bytes::ByteBuf::from(id.to_vec()))
+            .collect(),
+        commit_coins: resp
+            .commit_coins
+            .iter()
+            .map(crate::types::Coin::from_native)
+            .collect(),
+        descriptor: descriptor_to_json(&resp.descriptor())?,
+    })
+}
+
+/// A NON-owner unrolls + mints item `index` of a precommitted collection on demand (#40), funding the
+/// 1-mojo launcher (+ `fee`) from `claimerCoins`. `descriptor` is the opaque JSON string
+/// `buildLazyMintCommit` returned; `claimerPuzzleHash` is the 32-byte recipient. `merkleProof` is
+/// accepted for an allowlist-gated claim but on-chain enforcement is DEFERRED. Returns
+/// `{ coinSpends, launcherId, nftCoin }`.
+#[wasm_bindgen(
+    js_name = "buildLazyMintClaim",
+    unchecked_return_type = "LazyMintClaimResult"
+)]
+#[allow(clippy::too_many_arguments)]
+pub fn build_lazy_mint_claim(
+    claimer_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] claimer_coins: JsValue,
+    claimer_puzzle_hash: &[u8],
+    descriptor: String,
+    index: usize,
+    #[wasm_bindgen(unchecked_param_type = "MerkleMembershipProof")] merkle_proof: JsValue,
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    let desc = descriptor_from_json(&descriptor)?;
+    let proof = if merkle_proof.is_undefined() || merkle_proof.is_null() {
+        None
+    } else {
+        let p: JsMerkleProof = from_js(merkle_proof)?;
+        Some(p.to_native()?)
+    };
+
+    let resp = core_lazy_claim(
+        public_key(claimer_synthetic_key)?,
+        coins_from_js(claimer_coins)?,
+        bytes32(claimer_puzzle_hash)?,
+        &desc,
+        index,
+        proof,
+        fee,
+    )
+    .map_err(js_err_from)?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        #[serde(with = "serde_bytes")]
+        launcher_id: Vec<u8>,
+        nft_coin: crate::types::Coin,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        launcher_id: resp.launcher_id.to_vec(),
+        nft_coin: crate::types::Coin::from_native(&resp.nft_coin),
     })
 }

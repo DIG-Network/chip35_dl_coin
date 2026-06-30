@@ -37,7 +37,7 @@ use clvmr::NodePtr;
 use crate::error::WalletError;
 
 /// Which asset a payment settles in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PaymentAsset {
     /// Native XCH (mojos).
     Xch,

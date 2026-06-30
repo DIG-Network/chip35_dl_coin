@@ -1,0 +1,21 @@
+; lazy_mint_direct_delegate.clsp — NFT inner puzzle for a FREE (mint-into-a-wallet) lazy mint.
+;
+; ATTRIBUTION (Apache-2.0 §4): ported from secure-the-mint
+;   (https://github.com/mintgarden-io/secure-the-mint),
+;   file secure_the_mint/puzzles/secure_the_mint_direct_delegate.clsp,
+;   Copyright 2024 Andreas Greimel, Apache-2.0 — see `puzzles/LICENSE-APACHE` + project `NOTICE`.
+;   CHANGES (§4(b)): renamed only; logic unchanged.
+;
+; The NFT eve coin's inner puzzle. Curried with the recipient `TARGET_PUZZLE_HASH`, it unconditionally
+; moves the freshly-minted NFT singleton to that wallet — so ANYONE may unroll the tree and the NFT
+; simply appears in the committed recipient's wallet, with no payment and no creator involvement.
+; The recipient is committed (its tree hash is `P2_PUZZLE_HASH` inside the pre-launcher), so it cannot
+; be redirected at claim time.
+
+(mod (TARGET_PUZZLE_HASH)
+  (include condition_codes.clib)
+
+  (list
+    (list CREATE_COIN TARGET_PUZZLE_HASH 1 (list TARGET_PUZZLE_HASH))
+   )
+)

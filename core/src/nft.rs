@@ -35,7 +35,7 @@ pub struct DidAttribution {
 ///
 /// `*_uris` are ordered by the caller; the DIG toolkit puts the `dig://` URN first and an https
 /// gateway URL second so a verifier prefers the permanent capsule and falls back to the gateway.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct NftMediaMetadata {
     /// URIs serving the primary media (dig:// first, https fallback second by convention).
     pub data_uris: Vec<String>,
