@@ -40,6 +40,31 @@ jobs:
       - name: test (core — incl. the Simulator validation gate)
         run: cargo test -p chip35-dl-coin
 
+  coverage:
+    name: rust coverage gate (>=80% lines)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      - uses: taiki-e/install-action@81ee1d48d9194cdcab880cbdc7d36e87d39874cb # v2.62.45
+        with:
+          tool: cargo-llvm-cov
+      # Measure unit-test coverage for the core crate and FAIL the build below the floor. The gate is
+      # set above the ecosystem-wide 80% minimum and just below the current measured coverage
+      # (96% lines / 92% regions) so it ratchets: a change that drops coverage breaks CI. The wasm
+      # crate is publish=false thin bindings over core and is covered by the wasm JS-shape job, so the
+      # coverage gate targets the core crate's own logic.
+      - name: coverage (core — fail under 90% lines / 85% regions)
+        run: >-
+          cargo llvm-cov -p chip35-dl-coin
+          --fail-under-lines 90
+          --fail-under-regions 85
+
   wasm:
     name: wasm build + JS-shape test
     runs-on: ubuntu-latest
