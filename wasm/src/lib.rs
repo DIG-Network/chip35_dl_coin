@@ -71,6 +71,7 @@ const BUILDERS: &[&str] = &[
     // Trustless lazy mint / mint-on-claim (#40): commit a collection once (DID), then anyone claims.
     "buildLazyMintCommit",
     "buildLazyMintClaim",
+    "verifyMerkleMembership",
 ];
 
 /// Every stable `UPPER_SNAKE` machine error code this module can surface — at a throwing export (the
@@ -86,6 +87,8 @@ const ERROR_CODES: &[&str] = &[
     "DRIVER_ERROR",
     "PARSE_ERROR",
     "PERMISSION_DENIED",
+    // Off-chain / builder-side allowlist gate for a lazy-mint claim (`chip35_dl_coin::Error::AllowlistDenied`).
+    "ALLOWLIST_DENIED",
     // CHIP-0007 metadata validation/serialization (`chip35_dl_coin::MetadataError`).
     "METADATA_ERROR",
     // NFT-gating (`chip35_dl_coin::GatingError`).
@@ -1206,6 +1209,7 @@ use crate::lazy_mint_types::{
 };
 use chip35_dl_coin::{
     build_lazy_mint_claim as core_lazy_claim, build_lazy_mint_commit as core_lazy_commit,
+    verify_merkle_membership as core_verify_merkle,
 };
 
 /// The creator DID spends ONCE to precommit `items` into `collection`, attributed by lineage to `did`
@@ -1336,4 +1340,24 @@ pub fn build_lazy_mint_claim(
         launcher_id: resp.launcher_id.to_vec(),
         nft_coin: crate::types::Coin::from_native(&resp.nft_coin),
     })
+}
+
+/// Verify a merkle membership proof for an allowlist-gated lazy-mint claim WITHOUT building a spend
+/// (#40). Recomputes the root from `leaf` + `proof` (the on-chain `merkle_utils.clib` shape: leaf
+/// prefix `0x01`, node prefix `0x02`) and returns `true` iff it equals the 32-byte `root`. Lets a hub
+/// / SDK validate a claimer's proof and gate the allowlist OFF-chain today. (`leaf` is the claimer's
+/// 32-byte puzzle hash; `root` is the committed `allowlistRoot`; `proof` is a `MerkleMembershipProof`
+/// `{ path, proof: Uint8Array[] }`.) Trustless ON-CHAIN enforcement remains deferred (see DESIGN.md #40).
+#[wasm_bindgen(js_name = "verifyMerkleMembership")]
+pub fn verify_merkle_membership(
+    leaf: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "MerkleMembershipProof")] proof: JsValue,
+    root: &[u8],
+) -> Result<bool, JsValue> {
+    let p: JsMerkleProof = from_js(proof)?;
+    Ok(core_verify_merkle(
+        bytes32(leaf)?,
+        &p.to_native()?,
+        bytes32(root)?,
+    ))
 }

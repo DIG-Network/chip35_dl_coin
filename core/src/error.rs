@@ -12,6 +12,13 @@ pub enum Error {
 
     #[error("Permission error: puzzle can't perform this action")]
     Permission,
+
+    /// An allowlist-gated claim was rejected at build time because no membership proof was supplied,
+    /// or the supplied proof does not prove the claimer's own puzzle hash is in the committed
+    /// allowlist root. This is the OFF-CHAIN / builder-side allowlist gate; trustless on-chain
+    /// enforcement (a compiled claim puzzle that runs the merkle verify) remains deferred.
+    #[error("Allowlist denied: {0}")]
+    AllowlistDenied(String),
 }
 
 impl Error {
@@ -24,6 +31,7 @@ impl Error {
             Error::Driver(_) => "DRIVER_ERROR",
             Error::Parse(_) => "PARSE_ERROR",
             Error::Permission => "PERMISSION_DENIED",
+            Error::AllowlistDenied(_) => "ALLOWLIST_DENIED",
         }
     }
 }

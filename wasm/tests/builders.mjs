@@ -405,9 +405,49 @@ const lazyCommitPaid = wasm.buildLazyMintCommit(
 );
 assert.ok(lazyCommitPaid.coinSpends.length > 0, "payment-gated lazy commit builds");
 
+// ALLOWLIST GATE (#107): an allowlist-gated commit + claim. The proof is ENFORCED off-chain by
+// buildLazyMintClaim; verifyMerkleMembership checks one without building a spend.
+const claimerPh = hexToBytes("0c".repeat(32)); // the claimer recipient puzzle hash used above
+// A single-member allowlist: the merkle root of one leaf is sha256(0x01 || leaf); its proof is
+// { path: 0, proof: [] } (no siblings). Computed here without re-implementing tree building.
+const singleLeafRoot = wasm.sha256(Buffer.concat([Buffer.from([0x01]), Buffer.from(claimerPh)]));
+const memberProof = { path: 0, proof: [] };
+
+// verifyMerkleMembership: a valid single-leaf proof verifies; a wrong root does not.
+assert.equal(typeof wasm.verifyMerkleMembership(claimerPh, memberProof, singleLeafRoot), "boolean");
+assert.ok(
+  wasm.verifyMerkleMembership(claimerPh, memberProof, singleLeafRoot),
+  "valid membership proof verifies against the single-leaf root"
+);
+assert.ok(
+  !wasm.verifyMerkleMembership(hexToBytes("0d".repeat(32)), memberProof, singleLeafRoot),
+  "a non-member leaf does not verify"
+);
+
+// A gated commit, then: a claim with NO proof is rejected (ALLOWLIST_DENIED); a claim WITH the valid
+// proof for the claimer's own address mints the precommitted launcher id.
+const lazyCommitGated = wasm.buildLazyMintCommit(
+  synthKey, didForMint, collection, lazyItems, { directMint: true }, singleLeafRoot
+);
+assert.throws(
+  () => wasm.buildLazyMintClaim(synthKey, [claimerCoin], claimerPh, lazyCommitGated.descriptor, 0, undefined, 0n),
+  (e) => e && e.code === "ALLOWLIST_DENIED",
+  "a gated claim with no proof throws ALLOWLIST_DENIED"
+);
+const gatedClaim = wasm.buildLazyMintClaim(
+  synthKey, [claimerCoin], claimerPh, lazyCommitGated.descriptor, 0, memberProof, 0n
+);
+assert.equal(
+  Buffer.from(gatedClaim.launcherId).toString("hex"),
+  Buffer.from(lazyCommitGated.launcherIds[0]).toString("hex"),
+  "a gated claim with a valid proof mints the precommitted launcher id"
+);
+
 // lazyMint exports are advertised in capabilities().
 const caps = wasm.capabilities();
 assert.ok(caps.builders.includes("buildLazyMintCommit"), "buildLazyMintCommit advertised");
 assert.ok(caps.builders.includes("buildLazyMintClaim"), "buildLazyMintClaim advertised");
+assert.ok(caps.builders.includes("verifyMerkleMembership"), "verifyMerkleMembership advertised");
+assert.ok(caps.errorCodes.includes("ALLOWLIST_DENIED"), "ALLOWLIST_DENIED error code advertised");
 
 console.log("All chip35-dl-coin WASM builder checks passed.");

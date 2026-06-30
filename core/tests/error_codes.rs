@@ -79,6 +79,10 @@ fn paywall_error_codes_are_stable() {
 fn builder_error_codes_are_stable() {
     assert_eq!(Error::Parse("x".into()).code(), "PARSE_ERROR");
     assert_eq!(Error::Permission.code(), "PERMISSION_DENIED");
+    assert_eq!(
+        Error::AllowlistDenied("x".into()).code(),
+        "ALLOWLIST_DENIED"
+    );
     // The Driver variant maps every upstream driver failure to one stable code.
     // (Constructed via the `From<DriverError>` path in real use; here we assert the code mapping
     //  through a representative Parse/Permission and trust the Driver arm is the catch-all.)

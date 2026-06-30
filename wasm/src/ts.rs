@@ -335,6 +335,7 @@ export type ChipErrorCode =
   | "DRIVER_ERROR"
   | "PARSE_ERROR"
   | "PERMISSION_DENIED"
+  | "ALLOWLIST_DENIED"
   | "METADATA_ERROR"
   | "NOT_AN_NFT"
   | "WRONG_OWNER"
@@ -367,7 +368,15 @@ export type LazyMintPolicy =
   | { directMint: true; paymentGated?: undefined }
   | { directMint?: false; paymentGated: { price: bigint; asset: PaymentAsset; payee: Uint8Array } };
 
-/** A merkle membership proof for an allowlist-gated claim (on-chain ENFORCEMENT DEFERRED — #40). */
+/**
+ * A merkle membership proof for an allowlist-gated lazy-mint claim (#40). The shape matches the
+ * on-chain `merkle_utils.clib` proof (a `path` of direction bits + the sibling `proof` hashes).
+ *
+ * It is ENFORCED OFF-CHAIN (builder-side): `buildLazyMintClaim` rejects an allowlist-gated claim with
+ * `ALLOWLIST_DENIED` unless the proof proves the claimer's own puzzle hash is in the committed root.
+ * `verifyMerkleMembership(leaf, proof, root)` checks one without building a spend. Trustless ON-CHAIN
+ * enforcement (the merkle verify inside a compiled claim puzzle) remains DEFERRED.
+ */
 export interface MerkleMembershipProof {
   path: number;
   proof: Uint8Array[];

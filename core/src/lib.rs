@@ -57,8 +57,9 @@ pub use did::{create_did, CreateDidResponse};
 // Trustless lazy mint / mint-on-claim (roadmap #40): the creator DID precommits a collection ONCE,
 // then anyone mints an individual NFT on demand with no further DID involvement.
 pub use lazy_mint::{
-    build_lazy_mint_claim, build_lazy_mint_commit, LazyMintClaimResponse, LazyMintCommitResponse,
-    LazyMintItem, LazyMintPolicy, LazyMintTreeDescriptor, MerkleMembershipProof,
+    build_lazy_mint_claim, build_lazy_mint_commit, merkle_membership_root,
+    verify_merkle_membership, LazyMintClaimResponse, LazyMintCommitResponse, LazyMintItem,
+    LazyMintPolicy, LazyMintTreeDescriptor, MerkleMembershipProof,
 };
 pub use metadata::{
     sha256, validate_uri_hash, Attribute, Chip0007Metadata, CollectionRef, MetadataError,

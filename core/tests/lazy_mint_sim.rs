@@ -12,9 +12,10 @@ use chia_protocol::Bytes32;
 use chia_puzzle_types::standard::StandardArgs;
 use chia_sdk_driver::{Launcher, Nft, Puzzle, SpendContext, StandardLayer};
 use chia_sdk_test::Simulator;
+use chia_sdk_types::MerkleTree;
 use chip35_dl_coin::{
-    build_lazy_mint_claim, build_lazy_mint_commit, sha256, Collection, LazyMintItem,
-    LazyMintPolicy, NftMediaMetadata,
+    build_lazy_mint_claim, build_lazy_mint_commit, sha256, Collection, Error, LazyMintItem,
+    LazyMintPolicy, MerkleMembershipProof, NftMediaMetadata,
 };
 use clvm_traits::ToClvm;
 use clvmr::Allocator;
@@ -155,6 +156,103 @@ fn lazy_mint_commit_then_claim_as_different_party() -> anyhow::Result<()> {
         commit.commit_coins[1].parent_coin_info, did_coin_id,
         "the commitment coin descends from the creator DID coin (provenance by lineage)"
     );
+
+    Ok(())
+}
+
+/// ALLOWLIST-GATED commit→claim end-to-end on the simulator. Proves the off-chain / builder-side
+/// allowlist gate is real (a missing proof is rejected BEFORE any spend) AND that a claim carrying a
+/// valid membership proof for the claimer's own puzzle hash still mints a live NFT on-chain. (Trustless
+/// ON-CHAIN merkle enforcement stays deferred — see DESIGN.md #40; this validates the doable gate.)
+#[test]
+fn allowlist_gated_commit_then_claim_with_proof() -> anyhow::Result<()> {
+    let mut sim = Simulator::new();
+
+    let creator = sim.bls(10);
+    let creator_p2 = StandardLayer::new(creator.pk);
+    let claimer = sim.bls(10);
+    let claimer_ph: Bytes32 = StandardArgs::curry_tree_hash(claimer.pk).into();
+
+    // Build an allowlist of three addresses INCLUDING the claimer, and the claimer's proof.
+    let members = vec![
+        claimer_ph,
+        Bytes32::new([0x11; 32]),
+        Bytes32::new([0x22; 32]),
+    ];
+    let tree = MerkleTree::new(&members);
+    let allowlist_root = tree.root();
+    let p = tree.proof(claimer_ph).expect("claimer is in the allowlist");
+    let proof = MerkleMembershipProof {
+        path: p.path,
+        proof: p.proof,
+    };
+
+    // Create the creator's DID.
+    let ctx = &mut SpendContext::new();
+    let (create_did, did) =
+        Launcher::new(creator.coin.coin_id(), 1).create_simple_did(ctx, &creator_p2)?;
+    creator_p2.spend(ctx, creator.coin, create_did)?;
+    sim.spend_coins(ctx.take(), std::slice::from_ref(&creator.sk))?;
+
+    let collection = Collection {
+        id: "lazy-col".into(),
+        name: "DIG Lazy Punks".into(),
+        attributes: vec![],
+        royalty_puzzle_hash: creator.puzzle_hash,
+        royalty_basis_points: 300,
+    };
+    let items = vec![item(0), item(1)];
+    let commit = build_lazy_mint_commit(
+        creator.pk,
+        did,
+        &collection,
+        &items,
+        LazyMintPolicy::DirectMint,
+        Some(allowlist_root),
+    )?;
+    sim.spend_coins(
+        commit.coin_spends.clone(),
+        std::slice::from_ref(&creator.sk),
+    )
+    .map_err(|e| anyhow::anyhow!("COMMIT spend failed: {e:?}"))?;
+
+    let descriptor = commit.descriptor();
+
+    // A gated claim with NO proof is rejected at build time — no spend is ever produced.
+    assert!(matches!(
+        build_lazy_mint_claim(
+            claimer.pk,
+            vec![claimer.coin],
+            claimer_ph,
+            &descriptor,
+            0,
+            None,
+            0
+        ),
+        Err(Error::AllowlistDenied(_))
+    ));
+
+    // A claim carrying the VALID proof for the claimer's own address mints on-chain.
+    let claim = build_lazy_mint_claim(
+        claimer.pk,
+        vec![claimer.coin],
+        claimer_ph,
+        &descriptor,
+        0,
+        Some(proof),
+        0,
+    )?;
+    sim.spend_coins(claim.coin_spends.clone(), std::slice::from_ref(&claimer.sk))
+        .map_err(|e| anyhow::anyhow!("gated CLAIM spend failed: {e:?}"))?;
+
+    let nft_state = sim
+        .coin_state(claim.nft_coin.coin_id())
+        .expect("minted NFT coin exists");
+    assert!(
+        nft_state.spent_height.is_none(),
+        "allowlist-gated minted NFT is live (unspent)"
+    );
+    assert_eq!(claim.launcher_id, commit.launcher_ids[0]);
 
     Ok(())
 }
