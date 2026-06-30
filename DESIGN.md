@@ -291,6 +291,167 @@ DID's acknowledging spend into the mint bundle* end-to-end (a "mint as your crea
 
 ---
 
+## #40 — Trustless lazy mint (mint-on-claim) (`lazy_mint.rs`)
+
+> **STATUS: IMPLEMENTED + SIMULATOR-VALIDATED** (commit + direct/free claim, provenance by lineage).
+> Payment-gated claim and allowlist gating are exposed but their *enforcement* is marked DEFERRED with
+> a precise blocker (see "Validated vs deferred" below). This is the primitive that lets the hub drop
+> studio offer self-serve on-chain drops it honestly blocks today (`drop-model.js`
+> `LAZY_MINT_DEFERRED` / `ALLOWLIST_ONCHAIN_DEFERRED`).
+
+**Blueprint + attribution.** Ported from mintgarden-io/secure-the-mint (Apache-2.0, © 2024 Andreas
+Greimel; itself based on Chia-Network's `secure_the_bag`, pre-launcher idea credited to trepca). The
+Apache license is vendored at `puzzles/LICENSE-APACHE`; the project `NOTICE` lists the derived files;
+the ported `.clsp` carry in-file attribution.
+
+### Design decision — SDK primitives, NOT custom compiled puzzles (for the validated path)
+
+secure-the-mint's custom `secure_the_mint_launcher.clsp` exists to solve two problems: (1) the Chia
+singleton launcher is insecure (its eve spend can be solved with any puzzle hash), so the launcher's
+creator must assert the eve commitment; and (2) at commit time you do not know the launcher coin id
+(it depends on the whole tree path), so that assertion has to be **recomputed on-chain** from the
+pre-launcher's own `my_id`.
+
+In `chia-sdk-driver` 0.30 BOTH problems already have a clean, audited solution and **neither needs a
+custom puzzle**:
+
+- **Launcher id is known at build time.** `Launcher::new(parent_coin_id, 1)` fully determines the
+  launcher coin from `(parent_coin_id, SINGLETON_LAUNCHER_HASH, 1)`, so `launcher.coin().coin_id()`
+  (= the NFT launcher id) is computable the instant the parent coin is fixed — which, in the commit,
+  is the moment the creator picks the DID coin to spend. No on-chain recomputation needed.
+- **The eve commitment is asserted by the SDK.** `Launcher::spend` already returns the
+  `assert_coin_announcement(...)` that forces the launcher's eve spend to commit to the exact NFT
+  puzzle hash — the same security property the custom pre-launcher hand-rolled, but provided (and
+  test-covered) by the SDK.
+- **A fixed "unroll node" is a quoted-conditions coin.** `ctx.delegated_spend(conditions)` /
+  `clvm_quote!` produce a `(q . conditions)` coin spendable by anyone with an empty solution — exactly
+  a secure-the-bag node — and `Conditions::create_coin(fixed_ph, amount, memos)` forces a fixed child.
+  `chia_sdk_types::puzzles::P2CurriedArgs` is the audited "commit to a fixed puzzle hash now, reveal +
+  run it later" wrapper if a commitment hash (rather than the revealed node) must be what the parent
+  creates.
+
+Re-implementing the pre-launcher in clsp would mean re-deriving the NFT layer puzzle hashes by hand
+(`puzzle-hash-of-curried-function` over the singleton / state / ownership layers) and keeping that in
+lockstep with `chia-puzzles` forever — a large, fragile surface for ZERO behavioural gain over the SDK
+layer hashing. So the validated builders compose `Launcher` + `NftMint` (`transfer_condition: None`) +
+quoted unroll coins. **The ported `.clsp` are kept in `puzzles/` as the auditable reference** of the
+secure-the-mint mechanism we mirror (same role as `delegation_layer.clsp`/`writer_filter.clsp`, which
+also ship inside `chia-sdk-driver`), and to keep the door open for a future clsp-backed payment/
+allowlist enforcement; the Rust builders do not load them at runtime.
+
+### Coin layout (what we build)
+
+A **flat secure-the-bag**, chosen over the deep N-ary tree because the offline keyless boundary returns
+one set of coin spends per call and the hub's drops are tens–hundreds of items (a deep tree's value-
+left-on-the-table multi-block unroll needs full-node coin selection the keyless builder can't express):
+
+- **Commit (`build_lazy_mint_commit`)** — the creator DID is spent **once**. For each of the N items it
+  emits `CREATE_COIN(commit_ph_i, 0, hint=launcher_id_i)` where `commit_ph_i =
+  P2CurriedArgs::new(launcher_node_hash_i)` commits to that item's fixed launcher-creation node. The DID
+  spend is the single authorization; afterwards the DID is never needed again. Because each commitment
+  coin's parent is the DID coin, and each launcher's parent is its commitment coin, **every NFT launcher
+  id is deterministic and precomputed at commit time** and returned to the caller. Returns:
+  `coin_spends` (the DID spend), `root` (a synthetic descriptor coin id binding the commit — the DID
+  coin id), and `launcher_ids[]` (one per item, in order).
+- **Claim (`build_lazy_mint_claim`)** — a NON-owner unrolls exactly ONE item, in a single bundle, with
+  **no DID involvement**: (a) spend commitment coin `i` revealing its `P2Curried` node → it `create_early`s
+  the launcher coin; (b) spend the launcher → eve NFT (`Launcher::mint_nft` with
+  `transfer_condition: None`, recipient = the committed `claimer_puzzle_hash` for the direct/free mode,
+  or the offer settlement puzzle for the paid mode); (c) the eve spend produces the child NFT owned by
+  the recipient. The claimer's own coin funds the launcher's 1 mojo + any fee and asserts the
+  commitment coin so the bundle is atomic. Returns the claim `coin_spends`.
+
+### Creator attribution — provenance by lineage (not on-chain `current_owner`)
+
+A trustless claim cannot set the NFT's on-chain `current_owner` to the creator DID: assigning a DID
+owner emits a `TransferNft` whose `assignment_puzzle_announcement` **must be asserted by a DID spend**
+(see `nft_launcher.rs`), i.e. the DID must be co-spent at claim — which breaks "anyone mints with no
+further DID involvement." (secure-the-mint has the identical property: its eve mint leaves
+`current_owner = None`.) So trustless lazy mint attributes the creator by **lineage**: every minted
+NFT's launcher coin provably descends from the commitment coins created by the creator's single DID
+spend (`launcher.parent == commit_coin`, `commit_coin.parent == did_coin`), and the royalty puzzle hash
+is committed to the creator. The simulator test asserts exactly this chain. On-chain
+`current_owner`-DID assignment per claim is possible only in a non-trustless "creator co-signs each
+claim" mode and is **out of scope** — the hub keeps its honest deferral for that.
+
+### Validated vs deferred (HONESTY — never claim a control is enforced when it isn't)
+
+- **VALIDATED on the simulator** (`core/tests/lazy_mint_sim.rs`): fund a coin → create a DID →
+  `build_lazy_mint_commit` for a 2–3 item collection and push it → `build_lazy_mint_claim` for one item
+  **as a different party** and push it → the resulting NFT exists, is unspent, is owned by the claimer's
+  puzzle hash, and its launcher lineage traces to the creator DID. This is real spend+validate, not a
+  shape check.
+- **Payment-gated claim** — the builder accepts a `LazyMintPolicy::PaymentGated { price, asset, payee }`
+  and wires the recipient to the offer settlement puzzle (the offer-delegate path). The keyless builder
+  emits the mint side; **atomic on-chain enforcement of the payment requires wrapping the eve mint in a
+  full offer (settlement-payments puzzle + notarized payment) that the keyless single-bundle boundary
+  does not assemble end-to-end** (taking an offer is a wallet settlement spend). It is therefore exposed
+  but its enforcement is **DEFERRED**: the precise blocker is "offer settlement assembly + take is a
+  wallet op outside the offline keyless builder." The hub keeps `LAZY_MINT_DEFERRED` honest for the paid
+  flow until the offer-construction wave (DESIGN.md #35 "offer construction deferred") lands.
+- **Allowlist (merkle) gating** — the API accepts an `allowlist_root` + per-claim `merkle_proof`. A
+  trustless on-chain *enforcement* of allowlist membership needs a custom claim puzzle (the merkle-verify
+  must run in the puzzle, gating the `CreateCoin` to the proven address) — i.e. a compiled `.clsp`, which
+  reintroduces exactly the custom-puzzle surface the validated path avoids. It is therefore **DEFERRED**:
+  the precise blocker is "merkle membership must be enforced inside a compiled claim puzzle; not yet
+  authored/audited." The builders validate the proof shape and surface `allowlist_root` so the hub can
+  gate OFF-chain today, and keep `ALLOWLIST_ONCHAIN_DEFERRED` honest for on-chain enforcement.
+
+### Rust API (`core/src/lazy_mint.rs`)
+
+```rust
+pub enum LazyMintPolicy {
+    /// Free / direct: claiming mints the NFT straight into `claimer_puzzle_hash` (no payment).
+    DirectMint,
+    /// Pay-to-mint: a claim must settle `price` of `asset` to `payee` (enforcement DEFERRED — see above).
+    PaymentGated { price: u64, asset: PaymentAsset, payee: Bytes32 },
+}
+
+pub struct LazyMintItem { pub metadata: NftMediaMetadata, pub royalty_basis_points: u16 }
+
+pub struct LazyMintCommitResponse {
+    pub coin_spends: Vec<CoinSpend>,   // the single DID spend
+    pub root: Bytes32,                 // the commit binding (the DID coin id)
+    pub launcher_ids: Vec<Bytes32>,    // precomputed per-item NFT launcher ids, in order
+    pub commit_coins: Vec<Coin>,       // the per-item commitment coins (amount 0) the claim spends
+}
+
+pub struct LazyMintClaimResponse {
+    pub coin_spends: Vec<CoinSpend>,
+    pub launcher_id: Bytes32,
+    pub nft_coin: Coin,
+}
+
+/// The creator DID spends ONCE to precommit `items` into `collection`, attributed by lineage to `did`.
+pub fn build_lazy_mint_commit(
+    minter_synthetic_key: PublicKey, did: Did, collection: &Collection,
+    items: &[LazyMintItem], policy: LazyMintPolicy, allowlist_root: Option<Bytes32>,
+) -> Result<LazyMintCommitResponse, WalletError>;
+
+/// A NON-owner unrolls + mints item `index` on demand, funding 1 mojo from `claimer_coins`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_lazy_mint_claim(
+    claimer_synthetic_key: PublicKey, claimer_coins: Vec<Coin>, claimer_puzzle_hash: Bytes32,
+    commit: &LazyMintTreeDescriptor, index: usize,
+    merkle_proof: Option<MerkleMembershipProof>, fee: u64,
+) -> Result<LazyMintClaimResponse, WalletError>;
+```
+
+`LazyMintTreeDescriptor` is the keyless, serializable handle a caller persists after a commit (the
+creator DID launcher id, the committed `collection`/`items`/`policy`/`allowlist_root`, and the
+per-item `commit_coins` + `launcher_ids`) so a claimer — who never saw the commit call — can rebuild
+the exact item `i` spend.
+
+### wasm exports (#40)
+`buildLazyMintCommit(minterKey, did, collection, items, policy, allowlistRoot?) ->
+{ coinSpends, root, launcherIds, commitCoins, descriptor }`,
+`buildLazyMintClaim(claimerKey, claimerCoins, claimerPuzzleHash, descriptor, index, merkleProof?, fee)
+-> { coinSpends, launcherId, nftCoin }`. `policy` is `{ directMint: true }` or
+`{ paymentGated: { price, asset, payee } }` (`asset` = `PaymentAsset`); `did` is the same `Did` shape
+`mintNftWithDid`/`bulkMint` accept; `descriptor` is the `LazyMintTreeDescriptor` JSON the commit returns.
+
+---
+
 ## Cross-module wiring (what the next wave consumes)
 
 Once a new `@dignetwork/chip35-dl-coin-wasm` is cut (human-gated):

@@ -1,0 +1,125 @@
+; lazy_mint_pre_launcher.clsp — secure NFT pre-launcher for the trustless lazy mint (mint-on-claim).
+;
+; ─────────────────────────────────────────────────────────────────────────────────────────────────
+; ATTRIBUTION (Apache-2.0 §4):
+;   Ported from secure-the-mint  (https://github.com/mintgarden-io/secure-the-mint)
+;     file: secure_the_mint/puzzles/secure_the_mint_launcher.clsp
+;   Copyright 2024 Andreas Greimel. Licensed under the Apache License, Version 2.0 — see
+;   `puzzles/LICENSE-APACHE` and the project `NOTICE`. secure-the-mint is itself based on the
+;   `secure_the_bag` code from Chia-Network's CAT-admin-tool; the pre-launcher singleton-securing
+;   idea is credited to trepca.
+;   CHANGES vs the upstream file (Apache §4(b)): renamed to `lazy_mint_pre_launcher.clsp`; the
+;   include `curry-and-treehash.clib` is provided locally as `include/curry-and-treehash.clib`
+;   (vendored, byte-identical to chia-blockchain's). Puzzle LOGIC is unchanged from upstream.
+; ─────────────────────────────────────────────────────────────────────────────────────────────────
+;
+; WHAT IT DOES. A "secure the bag" leaf for an NFT. When unrolled in MINT mode it creates the standard
+; Chia singleton launcher (amount 1) and ASSERTs the exact coin announcement the launcher will emit
+; for the curried NFT eve full-puzzle-hash — so the launcher's eve spend is forced to commit to the
+; precise NFT (metadata / royalty / transfer-program / inner p2 puzzle) the creator committed to, even
+; though the launcher id is unknown at commit time (it is recomputed on-chain from `my_id`).
+; `ASSERT_MY_COIN_ID my_id` binds the solution's `my_id` to the real coin so the announcement math is
+; sound. In MELT mode only the creator (holder of `MELT_PUBLIC_KEY`) may destroy a committed-but-
+; unminted slot (it produces no children → that item can never be minted).
+
+(mod (SINGLETON_MOD_HASH SINGLETON_LAUNCHER_PUZHASH
+      NFT_STATE_LAYER_MOD_HASH METADATA_HASH METADATA_UPDATER_PUZZLE_HASH
+      NFT_OWNERSHIP_LAYER_MOD_HASH
+      NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE
+      P2_PUZZLE_HASH
+      MELT_PUBLIC_KEY
+      mode ; 1 for mint, 0 for melt
+      my_id)
+  (include condition_codes.clib)
+  (include curry-and-treehash.clib)
+
+  (defun-inline nft_ownership_transfer_program_puzzle_hash (NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH SINGLETON_STRUCT ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE)
+    (puzzle-hash-of-curried-function NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH
+      (sha256 ONE TRADE_PRICE_PERCENTAGE)
+      (sha256 ONE ROYALTY_ADDRESS)
+      (sha256tree SINGLETON_STRUCT)
+    )
+  )
+
+  (defun-inline nft_ownership_layer_puzzle_hash (NFT_OWNERSHIP_LAYER_MOD_HASH CURRENT_OWNER TRANSFER_PROGRAM_HASH inner_puzzle_hash)
+    (puzzle-hash-of-curried-function NFT_OWNERSHIP_LAYER_MOD_HASH
+      inner_puzzle_hash
+      TRANSFER_PROGRAM_HASH
+      (sha256 ONE CURRENT_OWNER)
+      (sha256 ONE NFT_OWNERSHIP_LAYER_MOD_HASH)
+    )
+  )
+
+  (defun-inline nft_state_layer_puzzle_hash (NFT_STATE_LAYER_MOD_HASH METADATA_HASH METADATA_UPDATER_PUZZLE_HASH inner_puzzle_hash)
+    (puzzle-hash-of-curried-function NFT_STATE_LAYER_MOD_HASH
+      inner_puzzle_hash
+      (sha256 ONE METADATA_UPDATER_PUZZLE_HASH)
+      METADATA_HASH
+      (sha256 ONE NFT_STATE_LAYER_MOD_HASH)
+    )
+  )
+
+  (defun-inline calculate_singleton_puzzle_hash (SINGLETON_STRUCT inner_puzzle_hash)
+    (puzzle-hash-of-curried-function (f SINGLETON_STRUCT)
+      inner_puzzle_hash
+      (sha256tree SINGLETON_STRUCT)
+    )
+  )
+
+  (defun-inline calculate_full_puzzle_hash
+    (SINGLETON_STRUCT
+      NFT_STATE_LAYER_MOD_HASH METADATA_HASH METADATA_UPDATER_PUZZLE_HASH
+      NFT_OWNERSHIP_LAYER_MOD_HASH
+      NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE
+      inner_puzzle_hash
+    )
+    (calculate_singleton_puzzle_hash
+      SINGLETON_STRUCT
+      (nft_state_layer_puzzle_hash
+        NFT_STATE_LAYER_MOD_HASH
+        METADATA_HASH
+        METADATA_UPDATER_PUZZLE_HASH
+        (nft_ownership_layer_puzzle_hash
+          NFT_OWNERSHIP_LAYER_MOD_HASH
+          ()
+          (nft_ownership_transfer_program_puzzle_hash
+            NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH
+            SINGLETON_STRUCT
+            ROYALTY_ADDRESS
+            TRADE_PRICE_PERCENTAGE
+          )
+          inner_puzzle_hash
+        )
+      )
+    )
+  )
+
+
+  (if mode
+    (list ; mint
+      (list ASSERT_MY_COIN_ID my_id)
+      (list CREATE_COIN SINGLETON_LAUNCHER_PUZHASH 1)
+      (list ASSERT_COIN_ANNOUNCEMENT
+        (sha256
+          (calculate_coin_id my_id SINGLETON_LAUNCHER_PUZHASH 1)
+          (sha256tree
+            (list
+              (calculate_full_puzzle_hash
+                (c SINGLETON_MOD_HASH (c (calculate_coin_id my_id SINGLETON_LAUNCHER_PUZHASH 1) SINGLETON_LAUNCHER_PUZHASH))
+                NFT_STATE_LAYER_MOD_HASH METADATA_HASH METADATA_UPDATER_PUZZLE_HASH
+                NFT_OWNERSHIP_LAYER_MOD_HASH
+                NFT_OWNERSHIP_TRANSFER_PROGRAM_MOD_HASH ROYALTY_ADDRESS TRADE_PRICE_PERCENTAGE
+                P2_PUZZLE_HASH
+              )
+              1
+              ()
+            )
+          )
+        )
+      )
+    )
+    (list ; melt
+      (list AGG_SIG_ME MELT_PUBLIC_KEY 1)
+    )
+  )
+)
