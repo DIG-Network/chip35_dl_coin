@@ -294,9 +294,11 @@ DID's acknowledging spend into the mint bundle* end-to-end (a "mint as your crea
 ## #40 — Trustless lazy mint (mint-on-claim) (`lazy_mint.rs`)
 
 > **STATUS: IMPLEMENTED + SIMULATOR-VALIDATED** (commit + direct/free claim, provenance by lineage).
-> Payment-gated claim and allowlist gating are exposed but their *enforcement* is marked DEFERRED with
-> a precise blocker (see "Validated vs deferred" below). This is the primitive that lets the hub drop
-> studio offer self-serve on-chain drops it honestly blocks today (`drop-model.js`
+> Allowlist (merkle) gating is now **ENFORCED OFF-CHAIN** at the keyless builder boundary (a gated
+> claim requires a valid membership proof for the claimer's own puzzle hash — simulator-validated);
+> **trustless ON-CHAIN** allowlist enforcement and **payment-gated** atomic enforcement remain DEFERRED
+> with precise blockers (see "Validated vs deferred" below). This is the primitive that lets the hub
+> drop studio offer self-serve on-chain drops it honestly blocks today (`drop-model.js`
 > `LAZY_MINT_DEFERRED` / `ALLOWLIST_ONCHAIN_DEFERRED`).
 
 **Blueprint + attribution.** Ported from mintgarden-io/secure-the-mint (Apache-2.0, © 2024 Andreas
@@ -389,13 +391,27 @@ claim" mode and is **out of scope** — the hub keeps its honest deferral for th
   but its enforcement is **DEFERRED**: the precise blocker is "offer settlement assembly + take is a
   wallet op outside the offline keyless builder." The hub keeps `LAZY_MINT_DEFERRED` honest for the paid
   flow until the offer-construction wave (DESIGN.md #35 "offer construction deferred") lands.
-- **Allowlist (merkle) gating** — the API accepts an `allowlist_root` + per-claim `merkle_proof`. A
-  trustless on-chain *enforcement* of allowlist membership needs a custom claim puzzle (the merkle-verify
-  must run in the puzzle, gating the `CreateCoin` to the proven address) — i.e. a compiled `.clsp`, which
-  reintroduces exactly the custom-puzzle surface the validated path avoids. It is therefore **DEFERRED**:
-  the precise blocker is "merkle membership must be enforced inside a compiled claim puzzle; not yet
-  authored/audited." The builders validate the proof shape and surface `allowlist_root` so the hub can
-  gate OFF-chain today, and keep `ALLOWLIST_ONCHAIN_DEFERRED` honest for on-chain enforcement.
+- **Allowlist (merkle) gating** — split honestly into what IS enforced and what is DEFERRED:
+  - **ENFORCED — off-chain / builder-side (DONE, simulator-validated).** When a commit declares an
+    `allowlist_root`, `build_lazy_mint_claim` **rejects** a claim with `Error::AllowlistDenied`
+    (`ALLOWLIST_DENIED`) unless the caller supplies a `MerkleMembershipProof` that proves the claimer's
+    **own `claimer_puzzle_hash`** is a member of that root. `verify_merkle_membership` recomputes the
+    root from the leaf + proof using the EXACT `include/merkle_utils.clib` algorithm (leaf prefix
+    `0x01`, node prefix `0x02`), byte-compatible with `chia_sdk_types::MerkleTree` — so the very proof a
+    future on-chain claim puzzle would consume is the one validated here. The simulator test
+    (`lazy_mint_sim.rs::allowlist_gated_commit_then_claim_with_proof`) proves a no-proof gated claim is
+    rejected *before any spend* and a valid-proof claim still mints a live NFT on-chain. This stops the
+    keyless builder from ever emitting a spend for a non-allowlisted address (the hub also gates
+    off-chain). We prove the **claimer's own** puzzle hash (not the recipient/payee) so a paid drop
+    cannot launder a non-allowlisted buyer through the payee.
+  - **DEFERRED — trustless on-chain enforcement.** A claim spend assembled by *anything other than this
+    builder* (a hand-rolled spend) is not bound to the off-chain check; truly trustless enforcement
+    needs the merkle-verify to run **inside a compiled claim puzzle** that gates the `CreateCoin` to the
+    proven address — a compiled `.clsp` that reintroduces exactly the custom-puzzle surface the
+    SDK-primitive path avoids. The precise blocker: **"merkle membership must be enforced inside a
+    compiled, audited claim puzzle; the puzzle is not yet authored/audited."** The reference shape is
+    kept (`include/merkle_utils.clib` + the `lazy_mint_*_delegate.clsp` in `puzzles/`); the hub keeps
+    `ALLOWLIST_ONCHAIN_DEFERRED` honest for the on-chain bit.
 
 ### Rust API (`core/src/lazy_mint.rs`)
 
@@ -428,13 +444,30 @@ pub fn build_lazy_mint_commit(
     items: &[LazyMintItem], policy: LazyMintPolicy, allowlist_root: Option<Bytes32>,
 ) -> Result<LazyMintCommitResponse, WalletError>;
 
-/// A NON-owner unrolls + mints item `index` on demand, funding 1 mojo from `claimer_coins`.
+/// A NON-owner unrolls + mints item `index` on demand, funding 1 mojo from `claimer_coins`. If the
+/// commit declared an `allowlist_root`, `merkle_proof` is REQUIRED and is enforced here (off-chain):
+/// it must prove `claimer_puzzle_hash` is a member, else `Err(WalletError::AllowlistDenied)`.
 #[allow(clippy::too_many_arguments)]
 pub fn build_lazy_mint_claim(
     claimer_synthetic_key: PublicKey, claimer_coins: Vec<Coin>, claimer_puzzle_hash: Bytes32,
     commit: &LazyMintTreeDescriptor, index: usize,
     merkle_proof: Option<MerkleMembershipProof>, fee: u64,
 ) -> Result<LazyMintClaimResponse, WalletError>;
+
+/// The membership proof shape — mirrors `chia_sdk_types::MerkleProof` AND `include/merkle_utils.clib`.
+pub struct MerkleMembershipProof {
+    pub path: u32,           // LSB-first direction bits; bit i = direction at depth i
+    pub proof: Vec<Bytes32>, // sibling hashes leaf→root
+}
+
+/// Recompute the merkle root implied by a leaf + proof (leaf = sha256(0x01||leaf); node =
+/// sha256(0x02||left||right); path bit selects right(1)/left(0)). Byte-compatible with the SDK's
+/// MerkleTree and the on-chain merkle_utils.clib, so a future claim puzzle computes the identical root.
+pub fn merkle_membership_root(leaf: Bytes32, proof: &MerkleMembershipProof) -> Bytes32;
+
+/// `merkle_membership_root(leaf, proof) == root`. The off-chain allowlist check (and what a hub/SDK
+/// calls to gate a claim before building it).
+pub fn verify_merkle_membership(leaf: Bytes32, proof: &MerkleMembershipProof, root: Bytes32) -> bool;
 ```
 
 `LazyMintTreeDescriptor` is the keyless, serializable handle a caller persists after a commit (the
@@ -442,13 +475,32 @@ creator DID launcher id, the committed `collection`/`items`/`policy`/`allowlist_
 per-item `commit_coins` + `launcher_ids`) so a claimer — who never saw the commit call — can rebuild
 the exact item `i` spend.
 
+### Merkle proof shape (the allowlist contract)
+
+The allowlist is a **merkle tree of the allowed claimer puzzle hashes** (32-byte leaves). The root is
+the committed `allowlist_root`; a member's proof is `{ path, proof }` where `path` is the LSB-first
+direction bits and `proof` is the sibling hashes leaf→root. The hashing is the standard Chia tree:
+`sha256(0x01 || leaf)` for a leaf, `sha256(0x02 || left || right)` for an internal node, and at depth
+`i` the `i`-th low bit of `path` says whether the running hash is the **right** (`1`) or **left** (`0`)
+child. This is identical across three places, by construction and test: `chia_sdk_types::MerkleTree`
+(how a producer builds the tree + proofs), `merkle_membership_root` (the Rust off-chain verifier), and
+`include/merkle_utils.clib`'s `simplify_merkle_proof` (the reference clsp a future on-chain claim
+puzzle would run). `core/tests/lazy_mint.rs::merkle_root_matches_chia_sdk_types` pins the Rust↔SDK
+byte-equality. A hub/SDK builds the tree with `MerkleTree::new(leaves)`, ships each member their
+`MerkleTree::proof(leaf)`, and gates with `verifyMerkleMembership` (or lets `buildLazyMintClaim`
+reject a bad/absent proof).
+
 ### wasm exports (#40)
 `buildLazyMintCommit(minterKey, did, collection, items, policy, allowlistRoot?) ->
 { coinSpends, root, launcherIds, commitCoins, descriptor }`,
 `buildLazyMintClaim(claimerKey, claimerCoins, claimerPuzzleHash, descriptor, index, merkleProof?, fee)
--> { coinSpends, launcherId, nftCoin }`. `policy` is `{ directMint: true }` or
+-> { coinSpends, launcherId, nftCoin }` (throws `{ code: "ALLOWLIST_DENIED", message }` if the drop is
+allowlist-gated and `merkleProof` is missing or doesn't prove `claimerPuzzleHash`), and
+`verifyMerkleMembership(leaf, proof, root) -> boolean` (validate one proof without building a spend —
+for off-chain gating in the hub/SDK). `policy` is `{ directMint: true }` or
 `{ paymentGated: { price, asset, payee } }` (`asset` = `PaymentAsset`); `did` is the same `Did` shape
-`mintNftWithDid`/`bulkMint` accept; `descriptor` is the `LazyMintTreeDescriptor` JSON the commit returns.
+`mintNftWithDid`/`bulkMint` accept; `descriptor` is the `LazyMintTreeDescriptor` JSON the commit
+returns; `merkleProof` is `{ path: number, proof: Uint8Array[] }`.
 
 ---
 

@@ -5,10 +5,12 @@
 
 use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
 use chia_sdk_driver::{Launcher, SpendContext, StandardLayer};
+use chia_sdk_types::MerkleTree;
 use chip35_dl_coin::{
-    build_lazy_mint_claim, build_lazy_mint_commit, master_to_wallet_unhardened, sha256,
-    spend_bundle_to_hex, Bytes32, Coin, Collection, Error, LazyMintItem, LazyMintPolicy,
-    NftMediaMetadata, PublicKey, SecretKey, Signature, SpendBundle,
+    build_lazy_mint_claim, build_lazy_mint_commit, master_to_wallet_unhardened,
+    merkle_membership_root, sha256, spend_bundle_to_hex, verify_merkle_membership, Bytes32, Coin,
+    Collection, Error, LazyMintItem, LazyMintPolicy, MerkleMembershipProof, NftMediaMetadata,
+    PublicKey, SecretKey, Signature, SpendBundle,
 };
 
 fn synthetic(seed: u8) -> PublicKey {
@@ -198,4 +200,218 @@ fn claim_no_coins_errors() {
         build_lazy_mint_claim(claimer, vec![], claimer_ph, &descriptor, 0, None, 0),
         Err(Error::Parse(_))
     ));
+}
+
+// ---- merkle allowlist (builder-side enforcement; the proof shape + root recomputation) ----
+
+/// `merkle_membership_root` recomputes the SAME root as `chia_sdk_types::MerkleTree` (the on-chain
+/// `merkle_utils.clib` shape: leaf prefix 0x01, node prefix 0x02). This is the byte-compatibility the
+/// off-chain gate AND any future on-chain claim puzzle both rely on.
+#[test]
+fn merkle_root_matches_chia_sdk_types() {
+    let leaves: Vec<Bytes32> = (1u8..=5).map(|i| owner_ph(synthetic(i))).collect();
+    let tree = MerkleTree::new(&leaves);
+    for leaf in &leaves {
+        let p = tree.proof(*leaf).expect("leaf is in the tree");
+        let proof = MerkleMembershipProof {
+            path: p.path,
+            proof: p.proof.clone(),
+        };
+        assert_eq!(
+            merkle_membership_root(*leaf, &proof),
+            tree.root(),
+            "recomputed root must equal MerkleTree::root for an in-tree leaf"
+        );
+        assert!(verify_merkle_membership(*leaf, &proof, tree.root()));
+    }
+}
+
+/// A tampered proof / wrong leaf does NOT verify against the real root.
+#[test]
+fn merkle_membership_rejects_tampered_proof() {
+    let leaves: Vec<Bytes32> = (1u8..=4).map(|i| owner_ph(synthetic(i))).collect();
+    let tree = MerkleTree::new(&leaves);
+    let leaf = leaves[0];
+    let p = tree.proof(leaf).expect("in tree");
+    let good = MerkleMembershipProof {
+        path: p.path,
+        proof: p.proof.clone(),
+    };
+    // A leaf that is NOT in the allowlist fails verification.
+    let outsider = owner_ph(synthetic(99));
+    assert!(!verify_merkle_membership(outsider, &good, tree.root()));
+    // Flipping the path bit breaks verification for the real leaf.
+    let bad_path = MerkleMembershipProof {
+        path: p.path ^ 1,
+        proof: p.proof.clone(),
+    };
+    assert!(!verify_merkle_membership(leaf, &bad_path, tree.root()));
+    // A sibling-hash tamper breaks verification.
+    if !p.proof.is_empty() {
+        let mut sib = p.proof.clone();
+        sib[0] = Bytes32::new([0xAB; 32]);
+        let bad_sib = MerkleMembershipProof {
+            path: p.path,
+            proof: sib,
+        };
+        assert!(!verify_merkle_membership(leaf, &bad_sib, tree.root()));
+    }
+}
+
+/// Build the allowlist for a set of claimer puzzle hashes + a proof for one member.
+fn allowlist_for(members: &[Bytes32], member: Bytes32) -> (Bytes32, MerkleMembershipProof) {
+    let tree = MerkleTree::new(members);
+    let p = tree.proof(member).expect("member is in the allowlist");
+    (
+        tree.root(),
+        MerkleMembershipProof {
+            path: p.path,
+            proof: p.proof,
+        },
+    )
+}
+
+/// An allowlist-gated claim with NO proof is REJECTED at build time (the gate is enforced — the proof
+/// is no longer silently ignored). This is the off-chain / builder-side enforcement; trustless
+/// on-chain enforcement remains DEFERRED (needs a compiled claim puzzle — see DESIGN.md #40).
+#[test]
+fn allowlist_gated_claim_without_proof_is_rejected() {
+    let minter = synthetic(2);
+    let claimer = synthetic(9);
+    let claimer_ph = owner_ph(claimer);
+    let did = make_did(minter);
+    let col = test_collection(minter);
+    let items = vec![item(0)];
+
+    let members = vec![claimer_ph, owner_ph(synthetic(3)), owner_ph(synthetic(4))];
+    let (root, _proof) = allowlist_for(&members, claimer_ph);
+
+    let commit = build_lazy_mint_commit(
+        minter,
+        did,
+        &col,
+        &items,
+        LazyMintPolicy::DirectMint,
+        Some(root),
+    )
+    .expect("commit with allowlist root");
+    let descriptor = commit.descriptor();
+
+    let err = build_lazy_mint_claim(
+        claimer,
+        vec![coin(claimer_ph, 5)],
+        claimer_ph,
+        &descriptor,
+        0,
+        None, // no proof for a gated drop
+        0,
+    )
+    .expect_err("a gated claim with no proof must be rejected");
+    assert!(matches!(err, Error::AllowlistDenied(_)), "got {err:?}");
+}
+
+/// An allowlist-gated claim whose proof is for a DIFFERENT address (not the claimer) is rejected.
+#[test]
+fn allowlist_gated_claim_with_proof_for_other_address_is_rejected() {
+    let minter = synthetic(2);
+    let claimer = synthetic(9);
+    let claimer_ph = owner_ph(claimer);
+    let other_ph = owner_ph(synthetic(3));
+    let did = make_did(minter);
+    let col = test_collection(minter);
+    let items = vec![item(0)];
+
+    let members = vec![claimer_ph, other_ph, owner_ph(synthetic(4))];
+    // A valid proof, but for `other_ph`, not the claimer.
+    let (root, other_proof) = allowlist_for(&members, other_ph);
+
+    let commit = build_lazy_mint_commit(
+        minter,
+        did,
+        &col,
+        &items,
+        LazyMintPolicy::DirectMint,
+        Some(root),
+    )
+    .expect("commit");
+    let descriptor = commit.descriptor();
+
+    let err = build_lazy_mint_claim(
+        claimer,
+        vec![coin(claimer_ph, 5)],
+        claimer_ph,
+        &descriptor,
+        0,
+        Some(other_proof),
+        0,
+    )
+    .expect_err("a proof that doesn't prove the claimer's own address must be rejected");
+    assert!(matches!(err, Error::AllowlistDenied(_)), "got {err:?}");
+}
+
+/// An allowlist-gated claim with a VALID proof for the claimer's own puzzle hash succeeds and mints
+/// the precommitted launcher id.
+#[test]
+fn allowlist_gated_claim_with_valid_proof_succeeds() {
+    let minter = synthetic(2);
+    let claimer = synthetic(9);
+    let claimer_ph = owner_ph(claimer);
+    let did = make_did(minter);
+    let col = test_collection(minter);
+    let items = vec![item(0), item(1)];
+
+    let members = vec![claimer_ph, owner_ph(synthetic(3)), owner_ph(synthetic(4))];
+    let (root, proof) = allowlist_for(&members, claimer_ph);
+
+    let commit = build_lazy_mint_commit(
+        minter,
+        did,
+        &col,
+        &items,
+        LazyMintPolicy::DirectMint,
+        Some(root),
+    )
+    .expect("commit");
+    let descriptor = commit.descriptor();
+
+    let claim = build_lazy_mint_claim(
+        claimer,
+        vec![coin(claimer_ph, 5)],
+        claimer_ph,
+        &descriptor,
+        1,
+        Some(proof),
+        0,
+    )
+    .expect("a valid allowlist proof for the claimer's own address mints");
+    assert_eq!(claim.launcher_id, commit.launcher_ids[1]);
+}
+
+/// A NON-gated drop (no allowlist root committed) still mints with NO proof — the gate only applies
+/// when the creator committed an allowlist root.
+#[test]
+fn ungated_claim_ignores_proof_argument() {
+    let minter = synthetic(2);
+    let claimer = synthetic(9);
+    let claimer_ph = owner_ph(claimer);
+    let did = make_did(minter);
+    let col = test_collection(minter);
+    let items = vec![item(0)];
+
+    let commit =
+        build_lazy_mint_commit(minter, did, &col, &items, LazyMintPolicy::DirectMint, None)
+            .expect("commit, no allowlist");
+    let descriptor = commit.descriptor();
+
+    // No proof, no root → mints fine (back-compat: the existing free path).
+    build_lazy_mint_claim(
+        claimer,
+        vec![coin(claimer_ph, 5)],
+        claimer_ph,
+        &descriptor,
+        0,
+        None,
+        0,
+    )
+    .expect("ungated claim mints without a proof");
 }
