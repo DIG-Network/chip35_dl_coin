@@ -102,12 +102,20 @@ The store list lives in your browser's localStorage; "Refresh status" checks eac
 # Rust driver unit + parity tests
 cargo test -p chip35-dl-coin
 
+# Coverage (what CI gates). Requires cargo-llvm-cov: `cargo install cargo-llvm-cov`.
+# CI fails the build below the floor (>=90% lines / >=85% regions for the core crate).
+cargo llvm-cov -p chip35-dl-coin --fail-under-lines 90 --fail-under-regions 85
+
 # WASM functional test (builds the nodejs target, runs mint/update/melt/oracle + native↔wasm golden parity)
 cd wasm; npm test; cd ..
 
 # App typecheck / build
 cd app; npx tsc --noEmit; npm run build; cd ..
 ```
+
+Coverage is measured per-push by the `coverage` job in `.github/workflows/ci.yml`. The wasm crate is
+`publish = false` thin bindings over the core crate and is exercised by the wasm JS-shape job, so the
+coverage gate targets the core crate's own logic.
 
 ---
 
