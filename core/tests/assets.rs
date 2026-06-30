@@ -154,7 +154,11 @@ fn mint_nft_with_did_is_deterministic() {
         let r = mint_nft_with_did(synth, vec![coin(ph, 2)], did, params, 0).unwrap();
         spend_bundle_to_hex(&SpendBundle::new(r.coin_spends, Signature::default())).unwrap()
     };
-    assert_eq!(build(), build(), "DID mint is deterministic for identical inputs");
+    assert_eq!(
+        build(),
+        build(),
+        "DID mint is deterministic for identical inputs"
+    );
 }
 
 #[test]

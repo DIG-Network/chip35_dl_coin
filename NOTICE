@@ -1,0 +1,34 @@
+chip35-dl-coin
+==============
+
+The core crate is MIT-licensed (see core/Cargo.toml).
+
+Portions of the trustless lazy-mint (mint-on-claim) primitive are DERIVED FROM
+secure-the-mint, used under the Apache License, Version 2.0:
+
+  secure-the-mint — https://github.com/mintgarden-io/secure-the-mint
+  Copyright 2024 Andreas Greimel
+  Licensed under the Apache License, Version 2.0.
+
+  secure-the-mint is itself based on the `secure_the_bag` code from
+  Chia-Network's CAT-admin-tool; the pre-launcher singleton-securing idea is
+  credited to trepca.
+
+The Apache-2.0 license text is vendored at `puzzles/LICENSE-APACHE`.
+
+Files in this project derived from secure-the-mint (renamed; puzzle LOGIC
+unchanged from upstream — Apache-2.0 §4(b) "stating that You changed the files"):
+
+  puzzles/lazy_mint_pre_launcher.clsp      <- secure_the_mint_launcher.clsp
+  puzzles/lazy_mint_direct_delegate.clsp   <- secure_the_mint_direct_delegate.clsp
+  puzzles/lazy_mint_offer_delegate.clsp    <- secure_the_mint_offer_delegate.clsp
+  puzzles/lazy_mint_pre_launcher.clsp.hex      (compiled output of the above)
+  puzzles/lazy_mint_direct_delegate.clsp.hex   (compiled output of the above)
+  puzzles/lazy_mint_offer_delegate.clsp.hex    (compiled output of the above)
+
+The Rust builders in `core/src/lazy_mint.rs` reproduce the secure-the-mint coin
+layout (the "secure the bag" tree of fixed coin-spends + the pre-launcher
+announcement-securing trick) and cite the source in-file.
+
+The vendored ChiaLisp include `include/curry-and-treehash.clib` is from the
+chia-blockchain project (Apache-2.0), used by the ported puzzles.

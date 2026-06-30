@@ -1,0 +1,30 @@
+; lazy_mint_offer_delegate.clsp — NFT inner puzzle for a PAY-TO-MINT (payment-gated) lazy mint.
+;
+; ATTRIBUTION (Apache-2.0 §4): ported from secure-the-mint
+;   (https://github.com/mintgarden-io/secure-the-mint),
+;   file secure_the_mint/puzzles/secure_the_mint_offer_delegate.clsp,
+;   Copyright 2024 Andreas Greimel, Apache-2.0 — see `puzzles/LICENSE-APACHE` + project `NOTICE`.
+;   CHANGES (§4(b)): renamed only; logic unchanged.
+;
+; The NFT eve coin's inner puzzle for a paid mint. It can only be spent as part of an OFFER that pays
+; exactly the `PAYMENTS` curried in (notarized with the eve coin id as nonce). So anyone may mint, but
+; only by taking an offer that pays the creator the committed price — mint and payment settle atomically.
+; `OFFER_MOD_HASH` is the settlement/offer-payments puzzle hash; `TRADE_PRICES` is forwarded to the NFT
+; ownership-layer transfer program via the -10 condition.
+
+(mod (OFFER_MOD_HASH PAYMENTS TRADE_PRICES my_id)
+  (include condition_codes.clib)
+  (include curry-and-treehash.clib)
+
+
+  (defun-inline notarize_payments (nonce PAYMENTS)
+    (sha256tree (c nonce PAYMENTS ))
+  )
+
+  (list
+    (list ASSERT_MY_COIN_ID my_id)
+    (list CREATE_COIN OFFER_MOD_HASH 1 (list OFFER_MOD_HASH))
+    (list ASSERT_PUZZLE_ANNOUNCEMENT (sha256 OFFER_MOD_HASH (notarize_payments my_id PAYMENTS)))
+    (list -10 () TRADE_PRICES ())
+   )
+)

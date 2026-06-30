@@ -351,6 +351,49 @@ export interface ChipError {
   message: string;
 }
 
+/** One precommitted item for a trustless lazy mint (#40): its on-chain media metadata + royalty. */
+export interface LazyMintItem {
+  metadata: NftMediaMetadata;
+  royaltyBasisPoints: number;
+}
+
+/**
+ * Who a lazy-mint claim mints to, and whether it must pay. Exactly one arm is set:
+ * `{ directMint: true }` (free — the SIMULATOR-VALIDATED mode), or
+ * `{ paymentGated: { price, asset, payee } }` (pay-to-mint; atomic on-chain payment ENFORCEMENT is
+ * DEFERRED — the builder mints to the claimer and the hub gates the payment off-chain for now).
+ */
+export type LazyMintPolicy =
+  | { directMint: true; paymentGated?: undefined }
+  | { directMint?: false; paymentGated: { price: bigint; asset: PaymentAsset; payee: Uint8Array } };
+
+/** A merkle membership proof for an allowlist-gated claim (on-chain ENFORCEMENT DEFERRED — #40). */
+export interface MerkleMembershipProof {
+  path: number;
+  proof: Uint8Array[];
+}
+
+/**
+ * Result of `buildLazyMintCommit`. `descriptor` is an OPAQUE JSON string the caller persists and
+ * passes straight back to `buildLazyMintClaim` (the claimer never hand-builds it). `launcherIds` are
+ * the precomputed per-item NFT launcher ids (in order); `commitCoins` are the per-item commitment
+ * coins (amount 0) a claim spends; `root` is the commit binding (the creator DID coin id).
+ */
+export interface LazyMintCommitResult {
+  coinSpends: CoinSpend[];
+  root: Uint8Array;
+  launcherIds: Uint8Array[];
+  commitCoins: Coin[];
+  descriptor: string;
+}
+
+/** Result of `buildLazyMintClaim`: the unroll+mint coin spends + the minted NFT. */
+export interface LazyMintClaimResult {
+  coinSpends: CoinSpend[];
+  launcherId: Uint8Array;
+  nftCoin: Coin;
+}
+
 /** Runtime self-description returned by `capabilities()`. */
 export interface Capabilities {
   /** The published npm package name. */

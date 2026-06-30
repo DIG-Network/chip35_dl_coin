@@ -1,6 +1,6 @@
 [package]
 name = "chip35-dl-coin"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 description = "Isolated CHIP-0035 Chia DataLayer store coin driver (offline spend-bundle construction)."
@@ -22,3 +22,11 @@ hex = "0.4"
 hex-literal = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+# The Chia Simulator — runs the lazy-mint commit+claim spends on a simulated chain to PROVE the
+# minted NFT actually exists, is owned by the claimer, and its lineage traces to the creator DID
+# (core/tests/lazy_mint_sim.rs). Version pinned to the same 0.30 line as chia-sdk-driver.
+chia-sdk-test = "0.30.0"
+clvm-utils = "0.26.0"
+anyhow = "1"

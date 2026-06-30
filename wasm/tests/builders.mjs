@@ -320,4 +320,94 @@ assert.throws(
   "buildDigStorePayment rejects a non-DIG CAT"
 );
 
+// ===========================================================================
+// Trustless lazy mint / mint-on-claim (roadmap #40): the creator DID precommits a collection ONCE,
+// then ANYONE claims an individual NFT on demand (no further DID involvement).
+// ===========================================================================
+
+const lazyItems = [0, 1, 2].map((i) => ({
+  metadata: {
+    dataUris: [`dig://urn:dig:chia:store:root/lazy${i}.png`],
+    dataHash: wasm.sha256(Buffer.from(`lazy-bytes-${i}`)),
+    metadataUris: [`dig://urn:dig:chia:store:root/lazy${i}.json`],
+    metadataHash: wasm.sha256(Buffer.from(`lazy-meta-${i}`)),
+    licenseUris: [],
+    editionNumber: 1n,
+    editionTotal: 1n,
+  },
+  royaltyBasisPoints: 300,
+}));
+
+// COMMIT: the creator DID spends once to precommit the 3-item collection (free / direct mint).
+const lazyCommit = wasm.buildLazyMintCommit(
+  synthKey,
+  didForMint,
+  collection,
+  lazyItems,
+  { directMint: true },
+  undefined
+);
+assert.ok(lazyCommit.coinSpends.length > 0, "lazy commit emits the DID spend");
+assert.equal(lazyCommit.launcherIds.length, 3, "one precomputed launcher id per item");
+assert.equal(lazyCommit.commitCoins.length, 3, "one commitment coin per item");
+assert.equal(typeof lazyCommit.descriptor, "string", "descriptor is the opaque JSON handle");
+assert.equal(lazyCommit.root.length, 32, "commit root (DID coin id) is 32 bytes");
+assert.notEqual(
+  Buffer.from(lazyCommit.launcherIds[0]).toString("hex"),
+  Buffer.from(lazyCommit.launcherIds[1]).toString("hex"),
+  "precommitted launcher ids are distinct per item"
+);
+
+// determinism: an identical commit (same DID coin) yields the same precomputed launcher ids.
+const lazyCommit2 = wasm.buildLazyMintCommit(
+  synthKey, didForMint, collection, lazyItems, { directMint: true }, undefined
+);
+assert.equal(
+  Buffer.from(lazyCommit2.launcherIds[1]).toString("hex"),
+  Buffer.from(lazyCommit.launcherIds[1]).toString("hex"),
+  "precomputed launcher ids are deterministic"
+);
+
+// CLAIM: a different party unrolls + mints item 1, funding the mojo from their own coin.
+const claimerCoin = {
+  parentCoinInfo: hexToBytes(f.parentCoinInfoHex),
+  puzzleHash: hexToBytes("0b".repeat(32)),
+  amount: 5n,
+};
+const lazyClaim = wasm.buildLazyMintClaim(
+  synthKey,
+  [claimerCoin],
+  hexToBytes("0c".repeat(32)), // claimer recipient puzzle hash
+  lazyCommit.descriptor,
+  1,
+  undefined,
+  0n
+);
+assert.ok(lazyClaim.coinSpends.length > 0, "lazy claim emits unroll+mint coin spends");
+assert.equal(lazyClaim.launcherId.length, 32, "lazy claim launcherId 32 bytes");
+assert.equal(
+  Buffer.from(lazyClaim.launcherId).toString("hex"),
+  Buffer.from(lazyCommit.launcherIds[1]).toString("hex"),
+  "claim mints exactly the precommitted launcher id for item 1"
+);
+
+// out-of-range index is rejected.
+assert.throws(
+  () => wasm.buildLazyMintClaim(synthKey, [claimerCoin], hexToBytes("0c".repeat(32)), lazyCommit.descriptor, 9, undefined, 0n),
+  "lazy claim rejects an out-of-range item index"
+);
+
+// a payment-gated policy is accepted at the boundary (enforcement deferred — see DESIGN.md #40).
+const lazyCommitPaid = wasm.buildLazyMintCommit(
+  synthKey, didForMint, collection, lazyItems,
+  { paymentGated: { price: 1000n, asset: { xch: true }, payee: ownerPh } },
+  undefined
+);
+assert.ok(lazyCommitPaid.coinSpends.length > 0, "payment-gated lazy commit builds");
+
+// lazyMint exports are advertised in capabilities().
+const caps = wasm.capabilities();
+assert.ok(caps.builders.includes("buildLazyMintCommit"), "buildLazyMintCommit advertised");
+assert.ok(caps.builders.includes("buildLazyMintClaim"), "buildLazyMintClaim advertised");
+
 console.log("All chip35-dl-coin WASM builder checks passed.");

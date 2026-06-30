@@ -3,3 +3,9 @@
 wasm/pkg
 wasm/pkg-node
 node_modules
+# Python venv for cdv puzzle compilation (COMPILE_PUZZLES.md)
+venv
+.venv
+# cdv / clvm compile artifacts (the committed output is the .clsp.hex beside each .clsp)
+*.sym
+**/*.sym
