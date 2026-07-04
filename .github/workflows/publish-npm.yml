@@ -5,6 +5,8 @@ name: publish-npm
 # secret's repository-access list). Runs when a GitHub Release is published, or on
 # manual dispatch.
 on:
+  push:
+    tags: ['v*']
   release:
     types: [published]
   workflow_dispatch: {}
