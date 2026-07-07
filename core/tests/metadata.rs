@@ -1,7 +1,8 @@
 //! Tests for the CHIP-0007 metadata builder + validator (roadmap #36).
 
 use chip35_dl_coin::{
-    sha256, validate_uri_hash, Attribute, Chip0007Metadata, MetadataError, CHIP0007_FORMAT,
+    sha256, validate_uri_hash, Attribute, Chip0007Metadata, CollectionAttribute, MetadataError,
+    CHIP0007_FORMAT,
 };
 
 #[test]
@@ -99,4 +100,59 @@ fn validate_uri_hash_rejects_mismatched_bytes() {
         err,
         MetadataError::HashMismatch { which: "data", .. }
     ));
+}
+
+// ---- #189: collection attributes use `type`, item attributes use `trait_type` (emit-side twin
+// of digstore's #187 read-side fix) ----
+
+/// A CHIP-0007-conformant collection attribute (`"type"`, NOT `"trait_type"`) parses. This is
+/// dkackman's #187 failure reproduced at the struct level for chip35: before the #189 fix,
+/// `CollectionRef`/`Collection` reused `Attribute` (which demands `trait_type`) and rejected this
+/// with "missing field `trait_type`".
+#[test]
+fn collection_attribute_parses_chip0007_type_field() {
+    let attr: CollectionAttribute =
+        serde_json::from_str(r#"{"type":"icon","value":"https://dig.net/icon.png"}"#)
+            .expect("a conformant CHIP-0007 collection attribute must parse");
+    assert_eq!(attr.kind, "icon");
+    assert_eq!(attr.value, "https://dig.net/icon.png");
+}
+
+/// Back-compat (§5.1): a collection attribute written with the OLD, non-conformant `trait_type`
+/// field (already-emitted chip35/DIG collection.json) still parses via the alias.
+#[test]
+fn collection_attribute_accepts_legacy_trait_type_alias() {
+    let attr: CollectionAttribute =
+        serde_json::from_str(r#"{"trait_type":"icon","value":"https://dig.net/icon.png"}"#)
+            .expect("the legacy trait_type spelling must still parse");
+    assert_eq!(attr.kind, "icon");
+}
+
+/// Going forward, a collection attribute always WRITES `type` (never `trait_type`), so newly
+/// emitted collection.json documents are CHIP-0007 conformant.
+#[test]
+fn collection_attribute_serializes_as_type_not_trait_type() {
+    let attr = CollectionAttribute {
+        kind: "banner".into(),
+        value: "https://dig.net/banner.png".into(),
+    };
+    let json = serde_json::to_string(&attr).unwrap();
+    assert_eq!(
+        json,
+        r#"{"type":"banner","value":"https://dig.net/banner.png"}"#
+    );
+}
+
+/// NFT **item** attributes are unaffected by #189: they still require `trait_type` and reject a
+/// collection-style `type` field (the two shapes stay distinct).
+#[test]
+fn item_attribute_still_requires_trait_type_not_type() {
+    let err = serde_json::from_str::<Attribute>(r#"{"type":"icon","value":"x"}"#).unwrap_err();
+    assert!(
+        err.to_string().contains("trait_type"),
+        "item Attribute must still demand trait_type, got: {err}"
+    );
+    let ok: Attribute = serde_json::from_str(r#"{"trait_type":"Background","value":"Blue"}"#)
+        .expect("item attribute with trait_type must parse");
+    assert_eq!(ok.trait_type, "Background");
 }

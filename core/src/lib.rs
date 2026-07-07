@@ -62,8 +62,8 @@ pub use lazy_mint::{
     LazyMintPolicy, LazyMintTreeDescriptor, MerkleMembershipProof,
 };
 pub use metadata::{
-    sha256, validate_uri_hash, Attribute, Chip0007Metadata, CollectionRef, MetadataError,
-    CHIP0007_FORMAT,
+    sha256, validate_uri_hash, Attribute, Chip0007Metadata, CollectionAttribute, CollectionRef,
+    MetadataError, CHIP0007_FORMAT,
 };
 pub use nft::{
     mint_nft, mint_nft_with_did, DidAttribution, NftMediaMetadata, NftMintParams, NftMintResponse,

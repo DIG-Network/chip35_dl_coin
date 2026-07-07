@@ -48,13 +48,39 @@ pub enum MetadataError {
     Json(String),
 }
 
-/// A single CHIP-0007 attribute (trait) on an NFT.
+/// A single CHIP-0007 attribute (trait) on an NFT **item**.
+///
+/// Distinct from [`CollectionAttribute`] (issue #189, the emit-side twin of digstore's #187): per
+/// CHIP-0007, an NFT item's `attributes` use the field name `trait_type`; a *collection's*
+/// `attributes` use `type`. Reusing one struct for both was the #189 bug (chip35 emitted
+/// non-conformant `trait_type` for collection-level attributes, since it is the canonical wasm
+/// builder hub's NFT collection studio drives). Keep item attributes on `trait_type` — do not merge
+/// the two shapes back together.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Attribute {
     /// The trait category (e.g. `"Background"`).
     pub trait_type: String,
     /// The trait value (e.g. `"Blue"`). Stored as a string for byte-stable hashing; numeric
     /// values are the caller's responsibility to stringify consistently.
+    pub value: String,
+}
+
+/// A single CHIP-0007 **collection-level** attribute (icon/banner/website/twitter/etc).
+///
+/// Per CHIP-0007, collection-level attributes use `type` as the field name — DISTINCT from an NFT
+/// item's `attributes`, which use `trait_type` ([`Attribute`]). Issue #189 (the emit-side twin of
+/// digstore's #187): chip35 wrongly reused [`Attribute`] (with `trait_type`) for collection
+/// attributes too, pinning non-conformant collection metadata on-chain for every hub-minted
+/// collection. This type serializes with `type` going forward; on READ it also accepts the legacy
+/// `trait_type` spelling (`#[serde(alias)]`, §5.1 back-compat) so already-emitted collection.json
+/// documents keep parsing.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CollectionAttribute {
+    /// The attribute category (e.g. `"icon"`, `"banner"`, `"website"`). Serializes as CHIP-0007's
+    /// `type`; also accepts the older, non-conformant `trait_type` spelling on read.
+    #[serde(rename = "type", alias = "trait_type")]
+    pub kind: String,
+    /// The attribute value (e.g. a URI).
     pub value: String,
 }
 
@@ -67,9 +93,10 @@ pub struct CollectionRef {
     pub id: String,
     /// The human-readable collection name.
     pub name: String,
-    /// Collection-level attributes (icon/banner/website/etc), as CHIP-0007 name/value pairs.
+    /// Collection-level attributes (icon/banner/website/etc), as CHIP-0007 `type`/`value` pairs
+    /// ([`CollectionAttribute`] — NOT [`Attribute`]; see #189).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<CollectionAttribute>,
 }
 
 /// A CHIP-0007 metadata document (the off-chain JSON an NFT's `metadata_uris` point at).

@@ -9,6 +9,12 @@
 # enforce_admins is off; the PAT is an org-admin/owner). See CLAUDE.md §3.6.
 #
 # Idempotent + loop-safe: no-op if the version's tag already exists; skips its own changelog commit.
+#
+# Version source: this repo is a Cargo workspace with NO version at the repo root (root Cargo.toml
+# is `[workspace]`-only). The actually-PUBLISHED unit is the wasm crate (`wasm/Cargo.toml`'s
+# version flows through wasm-pack into the npm package — see publish-npm.yml), so version
+# resolution below reads `wasm/Cargo.toml`, not the repo root (a root-only lookup silently no-ops
+# every release — reproduced in run 28700673541, "No version file — nothing to release").
 name: Release
 
 on:
@@ -42,8 +48,8 @@ jobs:
           set -euo pipefail
           pkg() { [ -f package.json ] && jq -r '.version // ""' package.json 2>/dev/null || echo ""; }
           crg() {
-            [ -f Cargo.toml ] || { echo ""; return; }
-            python3 -c 'import tomllib; d=tomllib.load(open("Cargo.toml","rb")); v=d.get("package",{}).get("version") or d.get("workspace",{}).get("package",{}).get("version") or ""; print(v if isinstance(v,str) else "")' 2>/dev/null || echo ""
+            [ -f wasm/Cargo.toml ] || { echo ""; return; }
+            python3 -c 'import tomllib; d=tomllib.load(open("wasm/Cargo.toml","rb")); v=d.get("package",{}).get("version") or d.get("workspace",{}).get("package",{}).get("version") or ""; print(v if isinstance(v,str) else "")' 2>/dev/null || echo ""
           }
           PV="$(pkg)"; CV="$(crg)"; VER="${PV:-$CV}"
           if [ -z "$VER" ]; then echo "skip=true" >>"$GITHUB_OUTPUT"; echo "No version file — nothing to release."; exit 0; fi
