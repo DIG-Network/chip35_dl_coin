@@ -97,9 +97,19 @@ export interface SpendBundle {
   aggregatedSignature: Uint8Array;
 }
 
-/** A CHIP-0007 attribute (trait). */
+/** A CHIP-0007 attribute (trait) on an NFT item. Collection-level attributes use {@link CollectionAttribute} instead (`type`, not `trait_type`). */
 export interface Attribute {
   traitType: string;
+  value: string;
+}
+
+/**
+ * A CHIP-0007 **collection-level** attribute (icon/banner/website/twitter/etc). Distinct from the
+ * NFT-item {@link Attribute}: a collection attribute's category field is `type` per CHIP-0007, and
+ * on write this DTO always emits `type`. `traitType` is still accepted on input for compatibility.
+ */
+export interface CollectionAttribute {
+  type: string;
   value: string;
 }
 
@@ -107,7 +117,7 @@ export interface Attribute {
 export interface CollectionRef {
   id: string;
   name: string;
-  attributes?: Attribute[];
+  attributes?: CollectionAttribute[];
 }
 
 /** A CHIP-0007 metadata document (off-chain JSON). */
@@ -198,7 +208,7 @@ export interface IssueCatResult {
 export interface Collection {
   id: string;
   name: string;
-  attributes?: Attribute[];
+  attributes?: CollectionAttribute[];
   royaltyPuzzleHash: Uint8Array;
   royaltyBasisPoints: number;
 }

@@ -16,7 +16,7 @@ use chia_sdk_types::{conditions::TransferNft, Conditions};
 use serde::{Deserialize, Serialize};
 
 use crate::error::WalletError;
-use crate::metadata::{Attribute, Chip0007Metadata, CollectionRef};
+use crate::metadata::{Attribute, Chip0007Metadata, CollectionAttribute, CollectionRef};
 use crate::nft::{DidAttribution, NftMediaMetadata};
 
 /// A CHIP-0007 collection definition: the shared identity + economics across every item.
@@ -26,9 +26,10 @@ pub struct Collection {
     pub id: String,
     /// Human-readable collection name.
     pub name: String,
-    /// Collection-level attributes (icon/banner/website/twitter/etc) as CHIP-0007 name/value pairs.
+    /// Collection-level attributes (icon/banner/website/twitter/etc) as CHIP-0007 `type`/`value`
+    /// pairs ([`CollectionAttribute`] — NOT the NFT-item [`Attribute`]; see #189).
     #[serde(default)]
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<CollectionAttribute>,
     /// Shared royalty recipient puzzle hash for every item.
     pub royalty_puzzle_hash: Bytes32,
     /// Shared royalty in basis points for every item.
