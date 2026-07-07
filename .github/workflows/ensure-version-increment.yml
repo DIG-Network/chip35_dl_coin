@@ -5,6 +5,13 @@
 #   - BOTH present                -> both must increase AND equal each other on this branch
 #   - neither present             -> nothing to enforce (passes)
 # Version files added new on this branch (absent on base) pass. Modeled on Chia-Network/cadt.
+#
+# This repo is a Cargo workspace (`[workspace] members = ["core", "wasm"]`) with NO version at the
+# repo root — the ROOT Cargo.toml has no `[package]`/`[workspace.package]` table, so a naive
+# root-only check would silently no-op (verified: the auto-tag Release workflow's identical
+# root-only lookup found nothing and skipped every release). The actually-PUBLISHED unit is the
+# wasm crate (`wasm/Cargo.toml`'s version flows through wasm-pack into the npm package), so this
+# gate checks THAT file instead of the repo root.
 name: Check Version Increment
 
 on:
@@ -58,12 +65,14 @@ jobs:
 
           B=base-repo
           H=branch-repo
+          # The published unit is the wasm crate (see the header note above) — check its Cargo.toml,
+          # not the repo root (which is workspace-only and carries no version).
           has_pkg=false; has_cargo=false
           [ -f "$H/package.json" ] && has_pkg=true
-          [ -f "$H/Cargo.toml" ] && has_cargo=true
+          [ -f "$H/wasm/Cargo.toml" ] && has_cargo=true
 
           if [ "$has_pkg" = false ] && [ "$has_cargo" = false ]; then
-            echo "No package.json or Cargo.toml at repo root — no version gate to enforce."
+            echo "No package.json at repo root or wasm/Cargo.toml — no version gate to enforce."
             exit 0
           fi
 
@@ -83,22 +92,22 @@ jobs:
           fi
 
           if [ "$has_cargo" = true ]; then
-            bc=$(cargo_version "$B"); hc=$(cargo_version "$H")
-            echo "Cargo.toml: base='$bc' head='$hc'"
+            bc=$(cargo_version "$B/wasm"); hc=$(cargo_version "$H/wasm")
+            echo "wasm/Cargo.toml: base='$bc' head='$hc'"
             if [ -n "$bc" ]; then
               if ! greater "$bc" "$hc"; then
-                echo "::error::Cargo.toml version must be incremented ($bc -> $hc) before merging."
+                echo "::error::wasm/Cargo.toml version must be incremented ($bc -> $hc) before merging."
                 fail=1
               fi
             else
-              echo "Cargo.toml is new on this branch (no base version) — OK."
+              echo "wasm/Cargo.toml is new on this branch (no base version) — OK."
             fi
           fi
 
           if [ "$has_pkg" = true ] && [ "$has_cargo" = true ]; then
-            hp=$(pkg_version "$H"); hc=$(cargo_version "$H")
+            hp=$(pkg_version "$H"); hc=$(cargo_version "$H/wasm")
             if [ -n "$hp" ] && [ -n "$hc" ] && [ "$hp" != "$hc" ]; then
-              echo "::error::package.json ($hp) and Cargo.toml ($hc) versions must match each other."
+              echo "::error::package.json ($hp) and wasm/Cargo.toml ($hc) versions must match each other."
               fail=1
             fi
           fi

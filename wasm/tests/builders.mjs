@@ -166,6 +166,32 @@ assert.equal(
   "metadataHash == sha256(canonical json)"
 );
 
+// #189 (emit-side twin of digstore's #187): a collection-level attribute passed as the current
+// hub camelCase shape `{ traitType, value }` must still be ACCEPTED (back-compat, alias), but the
+// canonical JSON it produces must render `"type"` (CHIP-0007-conformant) — never `"trait_type"` —
+// for the collection attribute, while the item-level attribute stays `"trait_type"`.
+const builtWithCollection = wasm.buildChip0007Metadata({
+  name: "DIG Punk #1",
+  collection: {
+    id: "col-1",
+    name: "DIG Punks",
+    attributes: [{ traitType: "icon", value: "https://dig.net/icon.png" }],
+  },
+  attributes: [{ traitType: "Background", value: "Blue" }],
+});
+assert.ok(
+  builtWithCollection.json.includes('"collection":{"id":"col-1","name":"DIG Punks","attributes":[{"type":"icon","value":"https://dig.net/icon.png"}]}'),
+  `collection attribute must serialize as "type", got: ${builtWithCollection.json}`
+);
+assert.ok(
+  builtWithCollection.json.includes('"attributes":[{"trait_type":"Background","value":"Blue"}]'),
+  `item attribute must still serialize as "trait_type", got: ${builtWithCollection.json}`
+);
+assert.ok(
+  !builtWithCollection.json.includes('"trait_type":"icon"'),
+  `collection attribute must NOT serialize as "trait_type", got: ${builtWithCollection.json}`
+);
+
 // validate: matching bytes pass, mismatched fail
 const okV = wasm.validateChip0007({ name: "x" }, { dataBytes, dataHash });
 assert.equal(okV.ok, true, "validate passes for matching data hash");

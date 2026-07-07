@@ -7,8 +7,8 @@ use chia_sdk_driver::{Launcher, SpendContext, StandardLayer};
 use chip35_dl_coin::{
     build_bulk_mint, create_did, decode_offer, encode_offer, generate_item_metadata, issue_cat,
     master_to_wallet_unhardened, mint_nft, mint_nft_with_did, sha256, spend_bundle_to_hex,
-    Attribute, Bytes32, Coin, Collection, DidAttribution, Error, ManifestItem, ManifestMedia,
-    NftMediaMetadata, NftMintParams, PublicKey, SecretKey, Signature, SpendBundle,
+    Attribute, Bytes32, Coin, Collection, CollectionAttribute, DidAttribution, Error, ManifestItem,
+    ManifestMedia, NftMediaMetadata, NftMintParams, PublicKey, SecretKey, Signature, SpendBundle,
 };
 
 fn synthetic() -> PublicKey {
@@ -296,8 +296,8 @@ fn test_collection(synth: PublicKey) -> Collection {
     Collection {
         id: "col-abc".into(),
         name: "DIG Punks".into(),
-        attributes: vec![Attribute {
-            trait_type: "website".into(),
+        attributes: vec![CollectionAttribute {
+            kind: "website".into(),
             value: "https://dig.net".into(),
         }],
         royalty_puzzle_hash: owner_ph(synth),
@@ -321,6 +321,36 @@ fn generate_item_metadata_fills_series_and_collection() {
         assert_eq!(cref.id, "col-abc");
         assert_eq!(cref.name, "DIG Punks");
     }
+}
+
+// ---- #189: collection attributes emit `type`, item attributes stay `trait_type` ----
+
+/// The generated item's canonical JSON must render the embedded collection attribute with
+/// `"type"` (CHIP-0007-conformant), while the item's own attribute stays `"trait_type"`. This is
+/// the emit-side twin of digstore's #187: chip35 is the canonical wasm builder hub's NFT collection
+/// studio drives, so before this fix every hub-minted collection pinned non-conformant collection
+/// metadata on-chain.
+#[test]
+fn generated_item_json_pins_collection_type_field() {
+    let synth = synthetic();
+    let col = test_collection(synth);
+    let items = manifest_items(1);
+    let docs = generate_item_metadata(&col, &items);
+    let json = docs[0].to_canonical_json().unwrap();
+    assert!(
+        json.contains(r#""collection":{"id":"col-abc","name":"DIG Punks","attributes":[{"type":"website","value":"https://dig.net"}]}"#),
+        "collection attribute must serialize as \"type\", got: {json}"
+    );
+    assert!(
+        json.contains(r#""attributes":[{"trait_type":"Index","value":"0"}]"#),
+        "item attribute must still serialize as \"trait_type\", got: {json}"
+    );
+    assert!(
+        !json.contains(
+            r#""collection":{"id":"col-abc","name":"DIG Punks","attributes":[{"trait_type""#
+        ),
+        "collection attribute must NOT serialize as \"trait_type\", got: {json}"
+    );
 }
 
 #[test]

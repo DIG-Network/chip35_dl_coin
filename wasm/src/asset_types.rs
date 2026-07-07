@@ -6,10 +6,10 @@
 
 use chip35_dl_coin::{
     Attribute as RustAttribute, Bytes32, Chip0007Metadata as RustChip0007Metadata,
-    Collection as RustCollection, CollectionRef as RustCollectionRef,
-    DidAttribution as RustDidAttribution, ManifestItem as RustManifestItem,
-    ManifestMedia as RustManifestMedia, NftMediaMetadata as RustNftMediaMetadata,
-    NftMintParams as RustNftMintParams,
+    Collection as RustCollection, CollectionAttribute as RustCollectionAttribute,
+    CollectionRef as RustCollectionRef, DidAttribution as RustDidAttribution,
+    ManifestItem as RustManifestItem, ManifestMedia as RustManifestMedia,
+    NftMediaMetadata as RustNftMediaMetadata, NftMintParams as RustNftMintParams,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
@@ -131,6 +131,37 @@ impl Attribute {
     }
 }
 
+/// JS shape of a CHIP-0007 **collection-level** attribute (icon/banner/website/twitter/etc).
+///
+/// Per CHIP-0007, collection-level attributes use `type` — DISTINCT from an NFT item's
+/// `attributes`, which use `trait_type` ([`Attribute`]). Issue #189: chip35 wrongly reused
+/// [`Attribute`] for collection attributes too, so every hub-minted collection pinned
+/// non-conformant metadata on-chain. This DTO always WRITES `type`. On READ it also accepts the
+/// legacy camelCase `traitType` spelling (hub's `collection-model.ts` `toWasmCollection` sends
+/// `{ traitType, value }` today) so existing callers keep working unchanged until they migrate to
+/// the conformant `type` field.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CollectionAttribute {
+    #[serde(rename = "type", alias = "traitType")]
+    pub kind: String,
+    pub value: String,
+}
+
+impl CollectionAttribute {
+    pub fn to_native(&self) -> RustCollectionAttribute {
+        RustCollectionAttribute {
+            kind: self.kind.clone(),
+            value: self.value.clone(),
+        }
+    }
+    pub fn from_native(a: &RustCollectionAttribute) -> Self {
+        CollectionAttribute {
+            kind: a.kind.clone(),
+            value: a.value.clone(),
+        }
+    }
+}
+
 /// JS shape of a CHIP-0007 collection reference block (as embedded in item metadata).
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,7 +169,7 @@ pub struct CollectionRef {
     pub id: String,
     pub name: String,
     #[serde(default)]
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<CollectionAttribute>,
 }
 
 impl CollectionRef {
@@ -146,7 +177,11 @@ impl CollectionRef {
         CollectionRef {
             id: c.id.clone(),
             name: c.name.clone(),
-            attributes: c.attributes.iter().map(Attribute::from_native).collect(),
+            attributes: c
+                .attributes
+                .iter()
+                .map(CollectionAttribute::from_native)
+                .collect(),
         }
     }
 }
@@ -188,7 +223,11 @@ impl Chip0007Metadata {
             collection: self.collection.as_ref().map(|c| RustCollectionRef {
                 id: c.id.clone(),
                 name: c.name.clone(),
-                attributes: c.attributes.iter().map(Attribute::to_native).collect(),
+                attributes: c
+                    .attributes
+                    .iter()
+                    .map(CollectionAttribute::to_native)
+                    .collect(),
             }),
             attributes: self.attributes.iter().map(Attribute::to_native).collect(),
             series_number: self.series_number,
@@ -217,8 +256,10 @@ impl Chip0007Metadata {
 pub struct Collection {
     pub id: String,
     pub name: String,
+    /// Collection-level attributes (icon/banner/website/etc) — [`CollectionAttribute`] (`type`),
+    /// NOT the NFT-item [`Attribute`] (`trait_type`); see #189.
     #[serde(default)]
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<CollectionAttribute>,
     #[serde(with = "serde_bytes")]
     pub royalty_puzzle_hash: Vec<u8>,
     pub royalty_basis_points: u16,
@@ -229,7 +270,11 @@ impl Collection {
         Ok(RustCollection {
             id: self.id.clone(),
             name: self.name.clone(),
-            attributes: self.attributes.iter().map(Attribute::to_native).collect(),
+            attributes: self
+                .attributes
+                .iter()
+                .map(CollectionAttribute::to_native)
+                .collect(),
             royalty_puzzle_hash: bytes32(&self.royalty_puzzle_hash)?,
             royalty_basis_points: self.royalty_basis_points,
         })

@@ -47,10 +47,17 @@ bytes and trusts raw input. This module is the single shared, tested implementat
 
 **`Chip0007Metadata`** — the typed model of the CHIP-0007 document:
 `format` (`"CHIP-0007"`), `name`, `description`, `sensitive_content` (bool or list),
-`collection` (id/name/attributes), `attributes` (trait_type/value), `minting_tool`, `series_number`,
-`series_total`. Serializes to canonical JSON with `serde_json` (stable key order via an explicit
-field order; CHIP-0007 does not mandate sorting but we emit deterministic output so the hash is
-reproducible).
+`collection` (id/name/attributes), `attributes` (item traits, `trait_type`/`value`),
+`minting_tool`, `series_number`, `series_total`. Serializes to canonical JSON with `serde_json`
+(stable key order via an explicit field order; CHIP-0007 does not mandate sorting but we emit
+deterministic output so the hash is reproducible).
+
+**Item vs collection attributes (#189).** An NFT *item*'s `attributes` use `trait_type`/`value`
+(`Attribute`). A *collection*'s `attributes` (icon/banner/website/twitter/etc, embedded via
+`CollectionRef`/`Collection`) use `type`/`value` (`CollectionAttribute`) — CHIP-0007 does not reuse
+the item shape for the collection block. `CollectionAttribute` serializes `type` going forward and
+also accepts the legacy `trait_type` spelling on read (`#[serde(alias)]`) so already-emitted
+collection.json documents keep parsing.
 
 **Hashing.** `sha256(bytes) -> Bytes32`. The on-chain NFT metadata pins three hashes:
 - `data_hash` = sha256(the media bytes),
