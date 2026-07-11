@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.13.0] - 2026-07-11
+
+### Features
+- **collection:** Fund multi-item bulk mints with a separate XCH coin (#3)
+
 ## [0.12.1] - 2026-07-07
 
 ### CI
@@ -26,25 +31,7 @@ This project adheres to [Semantic Versioning](https://semver.org) and
 ## [0.8.0] - 2026-06-29
 
 ### Features
-- **core:** Stable UPPER_SNAKE error codes on Error/GatingError/PaywallError- **wasm:** Version()/capabilities(), typed .d.ts exports, structured errors (0.8.0)
-
-## [0.7.0] - 2026-06-28
-
-### Chores
-- **wasm:** 0.7.0 — in-dapp monetization spends (payment/paywall/NFT-gating) for #46
-
-## [0.6.0] - 2026-06-28
-
-### Features
-- DataStore delegation builders (hub Teams #43 + deploy tokens #17)
-
-### Chores
-- **wasm:** 0.6.0 — DataStore delegation builders (admin/writer/oracle) for Teams #43 + deploy tokens #17
-
-## [0.5.0] - 2026-06-28
-
-### Features
-- **core:** Scaffold chip35-dl-coin crate (error, types, module wiring)- **core:** DataLayer store spend builders (mint/update/ownership/melt/oracle) + serialization- Add canonical DataLayer store puzzle sources (delegation_layer, writer_filter)- **wasm:** Scaffold chip35-dl-coin-wasm crate with init()- **app:** Next.js scaffold + wasm loader + WalletConnect/coinset/registry/storeOps plumbing- **app:** Demo UI — connect (QR), mint, list+liveness, update, delete DataLayer stores- **app:** Wait for coinset.org confirmation on mint/update/delete + status UI- **core,wasm:** Add addFee builder for attaching fees to singleton-only spends- **core,wasm:** Store program_hash in the DataStore metadata slot (was size_proof)- **app:** Program hash field + inputs (was size proof)- Digstore-scoped owner discovery hint at mint (0.2.0)- DataStoreFromSpend — reconstruct a DataStore for melt (0.3.0)- **app:** Use DIG Browser window.chia as a WalletConnect alternative- Asset toolkit spend builders + CHIP-0007 metadata + deploy-token scaffold
+- **core:** Scaffold chip35-dl-coin crate (error, types, module wiring)- **core:** DataLayer store spend builders (mint/update/ownership/melt/oracle) + serialization- Add canonical DataLayer store puzzle sources (delegation_layer, writer_filter)- **wasm:** Scaffold chip35-dl-coin-wasm crate with init()- **app:** Next.js scaffold + wasm loader + WalletConnect/coinset/registry/storeOps plumbing- **app:** Demo UI — connect (QR), mint, list+liveness, update, delete DataLayer stores- **app:** Wait for coinset.org confirmation on mint/update/delete + status UI- **core,wasm:** Add addFee builder for attaching fees to singleton-only spends- **core,wasm:** Store program_hash in the DataStore metadata slot (was size_proof)- **app:** Program hash field + inputs (was size proof)- Digstore-scoped owner discovery hint at mint (0.2.0)- DataStoreFromSpend — reconstruct a DataStore for melt (0.3.0)- **app:** Use DIG Browser window.chia as a WalletConnect alternative- Asset toolkit spend builders + CHIP-0007 metadata + deploy-token scaffold- DataStore delegation builders (hub Teams #43 + deploy tokens #17)- **core:** Stable UPPER_SNAKE error codes on Error/GatingError/PaywallError- **wasm:** Version()/capabilities(), typed .d.ts exports, structured errors (0.8.0)
 
 ### Bug Fixes
 - **core,wasm:** Guard empty coin slice; native<->wasm golden parity + oracle/ownership test coverage- **app:** Validate Sage signature shape; simplify push_tx; trim WC namespace; drop dead coinId branch- **app:** Robust coin selection (avoid double-spend) + attach fees to update/delete via addFee + fee inputs- **app:** Derive store owner from funding-coin key, not wallet address (fixes WRONG_PUZZLE_HASH on melt/update)- **app:** Display Program Hash row in the store list- **app:** Prefill program hash on edit (preserve current) + Random button in UpdateForm- **wasm:** Publish scoped @dignetwork/chip35-dl-coin-wasm; bump 0.5.0
@@ -62,7 +49,7 @@ This project adheres to [Semantic Versioning](https://semver.org) and
 - Add npm publish workflow- Install wasm-pack via official installer
 
 ### Chores
-- Init chip35_dl_coin workspace + spec/plan- Commit Cargo.lock to pin reproducible spend-bundle output- **app:** Retitle header to 'CHIP-0035 DataLayer Tech Demo'
+- Init chip35_dl_coin workspace + spec/plan- Commit Cargo.lock to pin reproducible spend-bundle output- **app:** Retitle header to 'CHIP-0035 DataLayer Tech Demo'- **wasm:** 0.6.0 — DataStore delegation builders (admin/writer/oracle) for Teams #43 + deploy tokens #17- **wasm:** 0.7.0 — in-dapp monetization spends (payment/paywall/NFT-gating) for #46
 
 ### Core
 - Doc owner-hint as capsule-lineage owner discovery (doc-only)
