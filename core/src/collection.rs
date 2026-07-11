@@ -6,9 +6,10 @@
 //! manifest), and bulk-mints all items in one bundle using intermediate launchers.
 
 use chia_bls::PublicKey;
-use chia_protocol::{Bytes32, CoinSpend};
+use chia_protocol::{Bytes32, Coin, CoinSpend};
 use chia_puzzle_types::nft::NftMetadata;
 use chia_puzzle_types::standard::StandardArgs;
+use chia_puzzle_types::Memos;
 use chia_sdk_driver::{
     Did, IntermediateLauncher, NftMint, SingletonInfo, SpendContext, StandardLayer,
 };
@@ -148,6 +149,11 @@ pub struct BulkMintResponse {
 ///
 /// `recipient_puzzle_hash` owns every minted NFT. Returns the coin spends + the launcher ids.
 ///
+/// This builds the launcher loop only — it is correct for N=1 (the DID singleton parents the one
+/// launcher directly). A REAL on-chain mint of N>1 items ALSO needs a separate XCH coin to donate the
+/// extra 1-mojo-per-launcher the intermediate-launcher trick prints; use [`build_bulk_mint_funded`]
+/// for that (coin-value conservation is bundle-wide — see its docs).
+///
 /// [`Launcher::mint_nft`]: chia_sdk_driver::Launcher::mint_nft
 ///
 /// # Errors
@@ -160,11 +166,109 @@ pub fn build_bulk_mint(
     items: &[ManifestItem],
     recipient_puzzle_hash: Bytes32,
 ) -> Result<BulkMintResponse, WalletError> {
+    let mut ctx = SpendContext::new();
+    let launcher_ids = build_bulk_mint_in(
+        &mut ctx,
+        minter_synthetic_key,
+        did,
+        collection,
+        items,
+        recipient_puzzle_hash,
+    )?;
+    Ok(BulkMintResponse {
+        coin_spends: ctx.take(),
+        launcher_ids,
+    })
+}
+
+/// Build a MULTI-item DID-attributed bulk mint FUNDED by a separate XCH coin (#221).
+///
+/// [`build_bulk_mint`] is structurally correct for any `items.len()` — but a REAL on-chain mint of
+/// N>1 items needs more value than the DID singleton carries. Each item's [`IntermediateLauncher`]
+/// uses the standard Chia bulk-mint idiom: a 0-value "intermediate" coin whose OWN spend creates a
+/// 1-mojo singleton launcher coin — i.e. it prints 1 mojo per item that must be donated from
+/// elsewhere in the SAME spend bundle (Chia's coin-value conservation is bundle-wide, not per-coin).
+/// The DID's `update` spend conserves its OWN coin value exactly (it recreates itself at the same
+/// amount), so it cannot supply that extra value for more than one item. `funding_coin` is that
+/// donor: it is spent through `funding_synthetic_key`'s standard puzzle to contribute exactly
+/// `items.len()` mojos to the bundle, with any excess returned as change to
+/// `funding_synthetic_key`'s own puzzle hash (a larger-than-needed coin is never silently burned as
+/// network fee).
+///
+/// `funding_synthetic_key` may be a different HD address than `minter_synthetic_key` (whichever
+/// address actually holds a sufficient XCH coin) — both keys are needed to sign the resulting bundle.
+///
+/// This is the wasm-facing twin of digstore's `build_collection_mint_funded`; the two builders' funding
+/// contract (1 mojo per item, change returned) is kept in lockstep. **Pure: does NOT sign or
+/// broadcast.**
+///
+/// # Errors
+/// [`WalletError::Parse`] if `items` is empty or if `funding_coin.amount < items.len()`;
+/// [`WalletError::Driver`] on spend-construction failure.
+#[allow(clippy::too_many_arguments)]
+pub fn build_bulk_mint_funded(
+    minter_synthetic_key: PublicKey,
+    did: Did,
+    collection: &Collection,
+    items: &[ManifestItem],
+    recipient_puzzle_hash: Bytes32,
+    funding_coin: Coin,
+    funding_synthetic_key: PublicKey,
+) -> Result<BulkMintResponse, WalletError> {
+    let needed = items.len() as u64;
+    if funding_coin.amount < needed {
+        return Err(WalletError::Parse(format!(
+            "funding coin has {} mojo but minting {} item(s) needs at least {needed} mojo (1 mojo \
+             per item — the DID's own value cannot fund the extra singleton launchers)",
+            funding_coin.amount,
+            items.len(),
+        )));
+    }
+
+    let mut ctx = SpendContext::new();
+    let launcher_ids = build_bulk_mint_in(
+        &mut ctx,
+        minter_synthetic_key,
+        did,
+        collection,
+        items,
+        recipient_puzzle_hash,
+    )?;
+
+    // Fund the `needed` mojos the intermediate-launcher trick prints per item (see docs above); any
+    // excess returns as change so a larger-than-needed coin is never silently burned as network fee.
+    let change = funding_coin.amount - needed;
+    let mut funding_conditions = Conditions::new();
+    if change > 0 {
+        let funding_puzzle_hash: Bytes32 =
+            StandardArgs::curry_tree_hash(funding_synthetic_key).into();
+        funding_conditions =
+            funding_conditions.create_coin(funding_puzzle_hash, change, Memos::None);
+    }
+    StandardLayer::new(funding_synthetic_key).spend(&mut ctx, funding_coin, funding_conditions)?;
+
+    Ok(BulkMintResponse {
+        coin_spends: ctx.take(),
+        launcher_ids,
+    })
+}
+
+/// Build the per-item intermediate launchers + the single DID-authorizing spend into a caller-provided
+/// `ctx`, returning the minted launcher ids in manifest order. Shared by [`build_bulk_mint`] and
+/// [`build_bulk_mint_funded`]; the launcher loop is N-agnostic (the only thing an N>1 mint additionally
+/// needs is the funding-coin spend, which the funded wrapper adds).
+fn build_bulk_mint_in(
+    ctx: &mut SpendContext,
+    minter_synthetic_key: PublicKey,
+    did: Did,
+    collection: &Collection,
+    items: &[ManifestItem],
+    recipient_puzzle_hash: Bytes32,
+) -> Result<Vec<Bytes32>, WalletError> {
     if items.is_empty() {
         return Err(WalletError::Parse("items is empty".to_string()));
     }
 
-    let mut ctx = SpendContext::new();
     let p2 = StandardLayer::new(minter_synthetic_key);
 
     let did_attr = DidAttribution {
@@ -193,8 +297,8 @@ pub fn build_bulk_mint(
         nft_mint.royalty_puzzle_hash = collection.royalty_puzzle_hash;
 
         let (mint_conditions, nft) = IntermediateLauncher::new(did.coin.coin_id(), i, total)
-            .create(&mut ctx)?
-            .mint_nft(&mut ctx, &nft_mint)?;
+            .create(ctx)?
+            .mint_nft(ctx, &nft_mint)?;
         all_mint_conditions = all_mint_conditions.extend(mint_conditions);
         launcher_ids.push(nft.info.launcher_id);
     }
@@ -202,12 +306,9 @@ pub fn build_bulk_mint(
     // Spend the DID once, authorizing all mints. `did.update` re-creates the DID under its own
     // standard inner puzzle, emitting the collected mint conditions; the recreated DID is not needed
     // here (the caller re-fetches it on-chain if it wants to chain further mints).
-    let _recreated_did = did.update(&mut ctx, &p2, all_mint_conditions)?;
+    let _recreated_did = did.update(ctx, &p2, all_mint_conditions)?;
 
-    Ok(BulkMintResponse {
-        coin_spends: ctx.take(),
-        launcher_ids,
-    })
+    Ok(launcher_ids)
 }
 
 /// Convert a manifest item into the on-chain [`NftMetadata`] CLVM struct for one bulk-mint slot.

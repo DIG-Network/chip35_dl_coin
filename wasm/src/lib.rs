@@ -52,6 +52,7 @@ const BUILDERS: &[&str] = &[
     "mintNft",
     "mintNftWithDid",
     "bulkMint",
+    "bulkMintFunded",
     "generateItemMetadata",
     "createDid",
     "issueCat",
@@ -529,10 +530,11 @@ use crate::asset_types::{
     ManifestItem as JsManifestItem, NftMintParams as JsNftMintParams,
 };
 use chip35_dl_coin::{
-    build_bulk_mint as core_bulk_mint, create_did as core_create_did,
-    decode_offer as core_decode_offer, encode_offer as core_encode_offer,
-    generate_item_metadata as core_generate_item_metadata, issue_cat as core_issue_cat,
-    mint_nft as core_mint_nft, mint_nft_with_did as core_mint_nft_with_did, sha256 as core_sha256,
+    build_bulk_mint as core_bulk_mint, build_bulk_mint_funded as core_bulk_mint_funded,
+    create_did as core_create_did, decode_offer as core_decode_offer,
+    encode_offer as core_encode_offer, generate_item_metadata as core_generate_item_metadata,
+    issue_cat as core_issue_cat, mint_nft as core_mint_nft,
+    mint_nft_with_did as core_mint_nft_with_did, sha256 as core_sha256,
     validate_uri_hash as core_validate_uri_hash, Did as RustDid, DidInfo as RustDidInfo,
 };
 
@@ -851,6 +853,64 @@ pub fn bulk_mint(
         &col.to_native()?,
         &native_items,
         bytes32(recipient_puzzle_hash)?,
+    )
+    .map_err(js_err_from)?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        launcher_ids: Vec<serde_bytes::ByteBuf>,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        launcher_ids: resp
+            .launcher_ids
+            .iter()
+            .map(|id| serde_bytes::ByteBuf::from(id.to_vec()))
+            .collect(),
+    })
+}
+
+/// Bulk-mint N items into a collection FUNDED by a separate XCH coin (#221) — the multi-item (N>1)
+/// path. Each item's intermediate launcher prints 1 mojo that must be donated from the SAME bundle
+/// (Chia coin-value conservation is bundle-wide), and the DID's own value cannot fund more than one;
+/// `fundingCoin` (spent via `fundingSyntheticKey`'s standard puzzle) contributes exactly `items.length`
+/// mojos, returning any excess as change to the funding key's own address. Both keys sign the bundle.
+/// `did` is the DID coin + identifiers `{ launcherId, innerPuzzleHash, didCoin }`; `fundingCoin` is a
+/// `Coin`. Returns `{ coinSpends, launcherIds }`.
+#[wasm_bindgen(js_name = "bulkMintFunded", unchecked_return_type = "BulkMintResult")]
+#[allow(clippy::too_many_arguments)]
+pub fn bulk_mint_funded(
+    minter_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Did")] did: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Collection")] collection: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "ManifestItem[]")] items: JsValue,
+    recipient_puzzle_hash: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Coin")] funding_coin: JsValue,
+    funding_synthetic_key: &[u8],
+) -> Result<JsValue, JsValue> {
+    let col: JsCollection = from_js(collection)?;
+    let items: Vec<JsManifestItem> = from_js(items)?;
+    let native_items = items
+        .iter()
+        .map(JsManifestItem::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let native_did = did_from_js(did)?;
+    let native_funding: crate::types::Coin = from_js(funding_coin)?;
+
+    let resp = core_bulk_mint_funded(
+        public_key(minter_synthetic_key)?,
+        native_did,
+        &col.to_native()?,
+        &native_items,
+        bytes32(recipient_puzzle_hash)?,
+        native_funding.to_native()?,
+        public_key(funding_synthetic_key)?,
     )
     .map_err(js_err_from)?;
 

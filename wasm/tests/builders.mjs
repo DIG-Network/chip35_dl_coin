@@ -287,6 +287,18 @@ assert.notEqual(
   "bulk minted items are distinct"
 );
 
+// --- #221: bulkMintFunded (multi-item mint funded by a separate XCH coin) ---
+// A separate XCH coin donates 1 mojo/item to the bundle (the DID's own value can't); excess returns
+// as change. The funded variant adds exactly one extra coin spend (the funding coin) over bulkMint.
+const fundingCoin = { parentCoinInfo: ownerPh, puzzleHash: ownerPh, amount: 100n };
+const bulkFunded = wasm.bulkMintFunded(synthKey, didForMint, collection, manifest, ownerPh, fundingCoin, synthKey);
+assert.equal(bulkFunded.launcherIds.length, 2, "bulkMintFunded one launcher id per item");
+assert.equal(
+  bulkFunded.coinSpends.length,
+  bulk.coinSpends.length + 1,
+  "bulkMintFunded adds exactly the funding-coin spend"
+);
+
 // --- #38: mintNftWithDid (single mint authorized by + attributed to a creator DID) ---
 const didMint = wasm.mintNftWithDid(synthKey, [coin], didForMint, nftParams, 0n);
 assert.ok(didMint.coinSpends.length > 0, "mintNftWithDid coinSpends");

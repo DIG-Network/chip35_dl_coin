@@ -241,7 +241,7 @@ export interface Did {
   numVerificationsRequired?: bigint;
 }
 
-/** Result of `bulkMint`. */
+/** Result of `bulkMint` / `bulkMintFunded`. */
 export interface BulkMintResult {
   coinSpends: CoinSpend[];
   launcherIds: Uint8Array[];
