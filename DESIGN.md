@@ -32,6 +32,8 @@ builders the toolkit needs and to expose them at the wasm boundary with a stable
 | `payment.rs` | In-dapp **payment** (XCH + any CAT incl. DIG) + **paywall** (pay-to-unlock receipt + verify). | #46 |
 | `gating.rs` | **NFT-gating** — read/verify NFT ownership + collection membership (no spend). | #46 |
 | `subscription.rs` | Subscription / recurring **scaffold** (clear TODO; needs a time-locked/delegated puzzle). | #46 |
+| `select.rs` | Shared high-value-first coin **selection** with a coin-count cap + the three-way `SelectCoinsResult` (`Ok` / `NeedsConsolidation` / `InsufficientFunds`). Pure — no keys/networking. | #410/#413 |
+| `consolidation.rs` | Keyless coin-**consolidation** builders (XCH + CAT): merge up to `cap` of the smallest coins → one self coin. The auto-combine loop submits these when a wallet is too fragmented. | #410/#413 |
 | ~~`deploy_token.rs`~~ | **REMOVED** — the bespoke scaffold is superseded. A deploy token is a **revocable writer delegate** (see `store.rs`); there is no separate puzzle. | #17 |
 
 The wasm crate (`wasm/src`) adds one thin `#[wasm_bindgen]` wrapper per new public core function,
@@ -311,6 +313,56 @@ DID's acknowledging spend into the mint bundle* end-to-end (a "mint as your crea
 (exactly `chip0002_getAssetCoins`'s shape).
 
 ---
+
+## #410/#413 — Coin selection + consolidation (`select.rs`, `consolidation.rs`)
+
+> **STATUS: IMPLEMENTED + SIMULATOR-VALIDATED** (XCH consolidation collapses N coins→1 on the real
+> Chia simulator). This is the RELEASE-FIRST browser/JS half of coin-management epic #410; the native
+> Rust half (`dig-l1-wallet`, #414) byte-mirrors these result semantics.
+
+**Scope change (additive).** The original design left coin selection consumer-side (see "No coin
+selection" below). Epic #410 makes it a SHARED primitive so every browser/JS spend creator (hub,
+extension, dig-sdk) selects identically and a "too many coins" condition is signalled — not hidden
+behind a generic insufficient-funds error. The existing builders that consume a pre-selected coin
+list are UNCHANGED; these are new, additive exports (§5.1 append-only wasm interface).
+
+### `selectCoins` — high-value-first, capped, three-way result (`select.rs`)
+`select_coins(coins, target, cap)` sorts DESCENDING by amount (tie-break by coin id ascending, for
+determinism), then greedily accumulates largest-first until the running total reaches `target`, using
+at most `cap` coins (default `DEFAULT_COIN_CAP = 50`). Pure — no keys, no networking. Works for XCH
+and any single CAT tail (the caller passes the CAT coins' underlying coins). The result is one of
+THREE distinct outcomes:
+
+- **`Ok { coins, total, change }`** — a selection within `cap` covers the target (`coins` are
+  largest-first; `coins[0]` is the natural lead coin the builders spend first).
+- **`NeedsConsolidation { availableCoinCount, availableTotal, required, cap }`** — enough total value
+  EXISTS, but reaching `target` needs more than `cap` coins. The caller consolidates, then re-selects.
+  This is **deliberately distinct** from insufficient funds.
+- **`InsufficientFunds { availableCoinCount, availableTotal, required, cap }`** — the total value is
+  below `target` regardless of the cap (genuinely not enough money).
+
+The wasm `selectCoins(coins, target, asset, cap?)` echoes the `asset` (`{ xch:true }` or `{ assetId }`)
+into the result so a caller knows which consolidation to run, and returns the discriminated
+`SelectCoinsResult`:
+`{ ok:true, coins, total, change, coinCount, asset }`
+| `{ ok:false, needsConsolidation:true, asset, availableCoinCount, availableTotal, required, cap }`
+| `{ ok:false, needsConsolidation:false, asset, availableCoinCount, availableTotal, required, cap }`.
+Amounts (`total`/`change`/`availableTotal`/`required`) are `bigint`; counts + `cap` are `number`.
+
+### Consolidation builders — merge many→one (`consolidation.rs`)
+When selection returns `NeedsConsolidation`, the client's auto-combine loop builds a consolidation,
+signs + pushes it, waits for confirmation, and re-selects — repeating until `Ok` or the user cancels.
+Both builders are keyless self-sends of ONE asset: they take up to `cap` of the SMALLEST
+(most-fragmenting) coins and collapse them into a SINGLE output back to the spender's own puzzle hash
+(`StandardArgs::curry_tree_hash(spenderKey)`). Every input coin must be spendable by that one key.
+Require ≥2 coins.
+
+- **`buildCoinConsolidation(spenderKey, selectedCoins, cap?, fee) -> CoinSpend[]`** (XCH): spend the
+  smallest `cap` coins, create ONE output of `total - fee` to the spender, reserve an optional `fee`.
+- **`buildCatConsolidation(spenderKey, selectedCats, cap?) -> CoinSpend[]`** (CAT tail): ring-spend the
+  smallest `cap` CAT coins of one asset id, create ONE output CAT coin of `total`. A CAT ring nets to
+  zero and pays no XCH fee — carry a network fee on a separate XCH coin via `addFee` asserting the lead
+  CAT coin id (the same pattern as CAT payments).
 
 ## #40 — Trustless lazy mint (mint-on-claim) (`lazy_mint.rs`)
 

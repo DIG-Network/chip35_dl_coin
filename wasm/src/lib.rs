@@ -69,6 +69,10 @@ const BUILDERS: &[&str] = &[
     "proveNftOwnership",
     "proveCollectionMembership",
     "readNftOwnership",
+    // Shared coin selection + consolidation (epic #410 / #413).
+    "selectCoins",
+    "buildCoinConsolidation",
+    "buildCatConsolidation",
     // Trustless lazy mint / mint-on-claim (#40): commit a collection once (DID), then anyone claims.
     "buildLazyMintCommit",
     "buildLazyMintClaim",
@@ -1035,10 +1039,13 @@ use crate::monetization_types::{
     PaymentReceipt as JsPaymentReceipt,
 };
 use chip35_dl_coin::{
-    build_cat_payment as core_build_cat_payment, build_xch_payment as core_build_xch_payment,
-    payment_nonce as core_payment_nonce, prove_collection_membership as core_prove_collection,
-    prove_nft_ownership as core_prove_nft, read_nft_ownership as core_read_nft,
-    verify_payment_receipt as core_verify_receipt,
+    build_cat_consolidation as core_build_cat_consolidation,
+    build_cat_payment as core_build_cat_payment,
+    build_coin_consolidation as core_build_coin_consolidation,
+    build_xch_payment as core_build_xch_payment, payment_nonce as core_payment_nonce,
+    prove_collection_membership as core_prove_collection, prove_nft_ownership as core_prove_nft,
+    read_nft_ownership as core_read_nft, select_coins as core_select_coins,
+    verify_payment_receipt as core_verify_receipt, SelectCoinsResult, DEFAULT_COIN_CAP,
 };
 
 /// SHA-256-derive a 32-byte unlock nonce from arbitrary request bytes (`dappId||resource||user`).
@@ -1253,6 +1260,157 @@ fn gating_result_to_js(
             error: Some(e.to_string()),
         },
     })
+}
+
+// ---------------------------------------------------------------------------
+// Shared coin selection + consolidation wasm exports (epic #410 / #413). One selection policy for
+// every browser/JS spend creator (hub, extension, dig-sdk): high-value-first with a coin-count cap,
+// a distinct NeedsConsolidation signal, and the keyless self-send consolidation builders the client's
+// auto-combine loop submits when a wallet is too fragmented to move value. Additive — the existing
+// builders that take a pre-selected coin list are unchanged.
+// ---------------------------------------------------------------------------
+
+/// Select coins high-value-first (descending amount, tie-break coin id) to cover `target`, using at
+/// most `cap` coins (default 50). Pure — no keys, no networking; works for XCH or any single CAT tail
+/// (pass the CAT coins' underlying `Coin`s). `asset` (`{ xch:true }` or `{ assetId }`) is echoed into
+/// the result so a caller knows which consolidation to run.
+///
+/// Returns a discriminated `SelectCoinsResult`:
+/// - `{ ok:true, coins, total, change, coinCount, asset }` — a selection within `cap` covers the
+///   target (`coins` are largest-first — `coins[0]` is the lead coin the builders expect);
+/// - `{ ok:false, needsConsolidation:true, asset, availableCoinCount, availableTotal, required, cap }`
+///   — enough value EXISTS but reaching the target needs more than `cap` coins (consolidate, then
+///   re-select);
+/// - `{ ok:false, needsConsolidation:false, asset, availableCoinCount, availableTotal, required, cap }`
+///   — the total value is genuinely below the target (distinct from needs-consolidation).
+#[wasm_bindgen(js_name = "selectCoins", unchecked_return_type = "SelectCoinsResult")]
+pub fn select_coins(
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] coins: JsValue,
+    target: u64,
+    #[wasm_bindgen(unchecked_param_type = "PaymentAsset")] asset: JsValue,
+    cap: Option<u32>,
+) -> Result<JsValue, JsValue> {
+    let asset: JsPaymentAsset = from_js(asset)?;
+    // Validate the asset shape (must be xch:true or assetId) so a malformed asset fails loudly.
+    asset.to_native()?;
+    let cap = cap.map(|c| c as usize).unwrap_or(DEFAULT_COIN_CAP);
+    let result = core_select_coins(coins_from_js(coins)?, target, cap);
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SelectOk {
+        ok: bool,
+        coins: Vec<crate::types::Coin>,
+        total: u64,
+        change: u64,
+        // Counts/caps are small `number`s in JS (not BigInt) — u32 avoids serde's usize→u64→BigInt.
+        coin_count: u32,
+        asset: JsPaymentAsset,
+    }
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SelectFail {
+        ok: bool,
+        needs_consolidation: bool,
+        asset: JsPaymentAsset,
+        available_coin_count: u32,
+        available_total: u64,
+        required: u64,
+        cap: u32,
+    }
+
+    match result {
+        SelectCoinsResult::Ok(sel) => to_js(&SelectOk {
+            ok: true,
+            coins: sel
+                .coins
+                .iter()
+                .map(crate::types::Coin::from_native)
+                .collect(),
+            total: sel.total,
+            change: sel.change,
+            coin_count: sel.coins.len() as u32,
+            asset,
+        }),
+        SelectCoinsResult::NeedsConsolidation {
+            available_coin_count,
+            available_total,
+            required,
+            cap,
+        } => to_js(&SelectFail {
+            ok: false,
+            needs_consolidation: true,
+            asset,
+            available_coin_count: available_coin_count as u32,
+            available_total,
+            required,
+            cap: cap as u32,
+        }),
+        SelectCoinsResult::InsufficientFunds {
+            available_coin_count,
+            available_total,
+            required,
+            cap,
+        } => to_js(&SelectFail {
+            ok: false,
+            needs_consolidation: false,
+            asset,
+            available_coin_count: available_coin_count as u32,
+            available_total,
+            required,
+            cap: cap as u32,
+        }),
+    }
+}
+
+/// Build the keyless XCH consolidation spends: merge up to `cap` (default 50) of the SMALLEST `coins`
+/// into ONE output coin (self-send of `total - fee`) back to the spender, reserving an optional `fee`
+/// (see [`chip35_dl_coin::build_coin_consolidation`]). `selected_coins` is the spender's XCH `Coin[]`;
+/// the output goes to the spender's own puzzle hash. Requires ≥2 coins. Returns `CoinSpend[]`.
+#[wasm_bindgen(
+    js_name = "buildCoinConsolidation",
+    unchecked_return_type = "CoinSpend[]"
+)]
+pub fn build_coin_consolidation(
+    spender_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    cap: Option<u32>,
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    let cap = cap.map(|c| c as usize).unwrap_or(DEFAULT_COIN_CAP);
+    let css = core_build_coin_consolidation(
+        public_key(spender_synthetic_key)?,
+        coins_from_js(selected_coins)?,
+        cap,
+        fee,
+    )
+    .map_err(js_err_from)?;
+    coin_spends_to_js(&css)
+}
+
+/// Build the keyless CAT consolidation spends: ring-merge up to `cap` (default 50) of the SMALLEST
+/// `selected_cats` (all of ONE asset id) into ONE output CAT coin (self-send of `total`) back to the
+/// spender (see [`chip35_dl_coin::build_cat_consolidation`]). The CAT ring nets to zero, so it pays no
+/// network fee — carry one on a separate XCH coin via `addFee` asserting the lead CAT coin id.
+/// Requires ≥2 CATs. Returns `CoinSpend[]`.
+#[wasm_bindgen(
+    js_name = "buildCatConsolidation",
+    unchecked_return_type = "CoinSpend[]"
+)]
+pub fn build_cat_consolidation(
+    spender_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Cat[]")] selected_cats: JsValue,
+    cap: Option<u32>,
+) -> Result<JsValue, JsValue> {
+    let cats: Vec<JsCat> = from_js(selected_cats)?;
+    let native_cats = cats
+        .iter()
+        .map(JsCat::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let cap = cap.map(|c| c as usize).unwrap_or(DEFAULT_COIN_CAP);
+    let css = core_build_cat_consolidation(public_key(spender_synthetic_key)?, native_cats, cap)
+        .map_err(js_err_from)?;
+    coin_spends_to_js(&css)
 }
 
 // ---------------------------------------------------------------------------

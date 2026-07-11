@@ -7,6 +7,7 @@
 
 mod cat;
 mod collection;
+mod consolidation;
 mod did;
 mod dig;
 mod error;
@@ -16,6 +17,7 @@ mod metadata;
 mod nft;
 mod offer;
 mod payment;
+mod select;
 mod store;
 mod subscription;
 mod types;
@@ -80,6 +82,13 @@ pub use payment::{
     build_cat_payment, build_xch_payment, payment_nonce, verify_payment_receipt, ObservedPayment,
     PaymentAsset, PaymentReceipt, PaymentResponse, PaywallError,
 };
+
+// Shared coin selection + consolidation (epic #410 / #413): high-value-first selection with a
+// coin-count cap + a distinct NeedsConsolidation signal, plus the keyless self-send consolidation
+// builders the auto-combine loop submits when a wallet is too fragmented to move value. Released via
+// the chip35 wasm; byte-mirrored by the native Rust layer (dig-l1-wallet, #414).
+pub use consolidation::{build_cat_consolidation, build_coin_consolidation};
+pub use select::{select_coins, CoinSelection, SelectCoinsResult, DEFAULT_COIN_CAP};
 pub use subscription::{
     build_subscription_authorization, build_subscription_claim, SubscriptionTerms,
 };
