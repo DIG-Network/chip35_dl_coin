@@ -52,7 +52,11 @@ externally and passes the signature in.
   consumer's responsibility.
 - No BLS signing inside the module (`signCoinSpends`, `signMessage`,
   `verifySignedMessage`) — consumer-side.
-- No coin selection (`selectCoins`) — consumer-side.
+- ~~No coin selection (`selectCoins`) — consumer-side.~~ **REVISED (epic #410/#413):** coin selection
+  is now a SHARED primitive — `selectCoins` (high-value-first, capped, with a distinct
+  `NeedsConsolidation` result) plus the `buildCoinConsolidation`/`buildCatConsolidation` builders are
+  provided here (see DESIGN.md → "#410/#413 — Coin selection + consolidation"). Additive: the existing
+  pre-selected-coin builders are unchanged.
 - No key/address derivation (`master_*`, synthetic-key, puzzle-hash, address
   conversion) — consumer-side.
 - No `adminDelegatedPuzzleFromKey` / `writerDelegatedPuzzleFromKey` (key-derivation

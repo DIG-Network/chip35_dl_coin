@@ -488,4 +488,101 @@ assert.ok(caps.builders.includes("buildLazyMintClaim"), "buildLazyMintClaim adve
 assert.ok(caps.builders.includes("verifyMerkleMembership"), "verifyMerkleMembership advertised");
 assert.ok(caps.errorCodes.includes("ALLOWLIST_DENIED"), "ALLOWLIST_DENIED error code advertised");
 
+// ===========================================================================
+// Shared coin selection + consolidation (epic #410 / #413)
+// ===========================================================================
+
+const mkCoin = (parent, amount) => ({
+  parentCoinInfo: hexToBytes(String(parent).padStart(2, "0").repeat(32)),
+  puzzleHash: ownerPh,
+  amount: BigInt(amount),
+});
+const xchAsset = { xch: true };
+
+// selectCoins — Ok: largest-first, correct total/change/coinCount, asset echoed.
+const selOk = wasm.selectCoins(
+  [mkCoin(1, 5), mkCoin(2, 30), mkCoin(3, 10), mkCoin(4, 20)],
+  45n,
+  xchAsset,
+  undefined
+);
+assert.equal(selOk.ok, true, "selectCoins Ok");
+assert.equal(selOk.coins.length, 2, "selectCoins picks two coins");
+assert.equal(selOk.coins[0].amount, 30n, "selectCoins returns largest-first");
+assert.equal(selOk.coins[1].amount, 20n, "selectCoins second-largest next");
+assert.equal(selOk.total, 50n, "selectCoins total");
+assert.equal(selOk.change, 5n, "selectCoins change");
+assert.equal(selOk.coinCount, 2, "selectCoins coinCount");
+assert.equal(selOk.asset.xch, true, "selectCoins echoes the xch asset");
+
+// selectCoins — NeedsConsolidation: enough value, too many coins for the cap.
+const selNeeds = wasm.selectCoins(
+  [mkCoin(1, 10), mkCoin(2, 10), mkCoin(3, 10), mkCoin(4, 10)],
+  40n,
+  xchAsset,
+  3
+);
+assert.equal(selNeeds.ok, false, "selectCoins over-cap is not ok");
+assert.equal(selNeeds.needsConsolidation, true, "selectCoins signals needsConsolidation");
+assert.equal(selNeeds.availableCoinCount, 4, "needsConsolidation availableCoinCount");
+assert.equal(selNeeds.availableTotal, 40n, "needsConsolidation availableTotal");
+assert.equal(selNeeds.required, 40n, "needsConsolidation required");
+assert.equal(selNeeds.cap, 3, "needsConsolidation cap echoed");
+
+// selectCoins — InsufficientFunds: distinct from needsConsolidation.
+const selShort = wasm.selectCoins([mkCoin(1, 10), mkCoin(2, 10)], 30n, xchAsset, undefined);
+assert.equal(selShort.ok, false, "selectCoins insufficient is not ok");
+assert.equal(selShort.needsConsolidation, false, "insufficient funds is NOT needsConsolidation");
+assert.equal(selShort.availableTotal, 20n, "insufficient availableTotal");
+
+// selectCoins — echoes a CAT asset id when selecting for a CAT tail.
+const selCatAsset = wasm.selectCoins(
+  [mkCoin(1, 100)],
+  10n,
+  { assetId: digC.assetId },
+  undefined
+);
+assert.equal(selCatAsset.ok, true, "selectCoins Ok for a CAT tail");
+assert.equal(
+  Buffer.from(selCatAsset.asset.assetId).toString("hex"),
+  Buffer.from(digC.assetId).toString("hex"),
+  "selectCoins echoes the CAT asset id"
+);
+
+// buildCoinConsolidation — merges the SMALLEST `cap` coins into ONE output; requires >= 2.
+const consol = wasm.buildCoinConsolidation(
+  synthKey,
+  [mkCoin(1, 100), mkCoin(2, 1), mkCoin(3, 50), mkCoin(4, 2), mkCoin(5, 3)],
+  3,
+  0n
+);
+assert.ok(Array.isArray(consol) && consol.length === 3, "consolidation spends the 3 smallest coins");
+const consolAmounts = consol.map((cs) => cs.coin.amount).sort((a, b) => Number(a - b));
+assert.deepEqual(consolAmounts, [1n, 2n, 3n], "only the smallest 3 coins are merged");
+assert.throws(
+  () => wasm.buildCoinConsolidation(synthKey, [mkCoin(1, 10)], 50, 0n),
+  "buildCoinConsolidation requires at least 2 coins"
+);
+
+// buildCatConsolidation — merges >= 2 CAT coins of one asset into one output.
+const mkCat = (parent, amount) => ({
+  coin: { parentCoinInfo: hexToBytes(String(parent).padStart(2, "0").repeat(32)), puzzleHash: hexToBytes("06".repeat(32)), amount: BigInt(amount) },
+  info: { assetId: digC.assetId, p2PuzzleHash: ownerPh },
+});
+const catConsol = wasm.buildCatConsolidation(synthKey, [mkCat(1, 100), mkCat(2, 5), mkCat(3, 7)], 2);
+assert.ok(Array.isArray(catConsol) && catConsol.length > 0, "cat consolidation returns coin spends");
+assert.throws(
+  () => wasm.buildCatConsolidation(synthKey, [mkCat(1, 10)], 50),
+  "buildCatConsolidation requires at least 2 CAT coins"
+);
+assert.throws(
+  () => wasm.buildCatConsolidation(synthKey, [mkCat(1, 10), { ...mkCat(2, 10), info: { assetId: new Uint8Array(32).fill(0xcd), p2PuzzleHash: ownerPh } }], 50),
+  "buildCatConsolidation rejects mixed asset ids"
+);
+
+// The new exports are advertised in capabilities().
+assert.ok(caps.builders.includes("selectCoins"), "selectCoins advertised");
+assert.ok(caps.builders.includes("buildCoinConsolidation"), "buildCoinConsolidation advertised");
+assert.ok(caps.builders.includes("buildCatConsolidation"), "buildCatConsolidation advertised");
+
 console.log("All chip35-dl-coin WASM builder checks passed.");

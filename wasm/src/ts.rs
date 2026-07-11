@@ -296,6 +296,37 @@ export interface PaymentResponse {
   receipt: PaymentReceipt;
 }
 
+/**
+ * The discriminated result of `selectCoins` (epic #410 / #413). `ok:true` carries the chosen coins
+ * (largest-first — `coins[0]` is the lead coin the builders expect). A failure is one of TWO distinct
+ * kinds, told apart by `needsConsolidation`:
+ * - `needsConsolidation:true` — enough total value EXISTS but reaching `required` needs more than
+ *   `cap` coins; build a consolidation (`buildCoinConsolidation` / `buildCatConsolidation`), push it,
+ *   wait for confirmation, then re-select.
+ * - `needsConsolidation:false` — the total value is genuinely below `required` (insufficient funds).
+ *
+ * `asset` echoes the input so a caller knows which asset (and thus which consolidation builder) the
+ * result concerns.
+ */
+export type SelectCoinsResult =
+  | {
+      ok: true;
+      coins: Coin[];
+      total: bigint;
+      change: bigint;
+      coinCount: number;
+      asset: PaymentAsset;
+    }
+  | {
+      ok: false;
+      needsConsolidation: boolean;
+      asset: PaymentAsset;
+      availableCoinCount: number;
+      availableTotal: bigint;
+      required: bigint;
+      cap: number;
+    };
+
 /** What an observed payment looks like to the paywall after reading the chain (for `verifyPaymentReceipt`). */
 export interface ObservedPayment {
   paidToPuzzleHash: Uint8Array;
