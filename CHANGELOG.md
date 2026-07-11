@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.14.0] - 2026-07-11
+
+### Features
+- **select:** Shared selectCoins (cap 50, NeedsConsolidation) + coin/CAT consolidation builders (#4)
+
 ## [0.13.0] - 2026-07-11
 
 ### Features
