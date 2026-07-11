@@ -122,7 +122,21 @@ only consumes the parsed form (the task is explicit: accept parsed JSON, not fil
 mint_total) → `Launcher::mint_nft`, with shared royalty + collection + optional DID attribution,
 spending the DID once to authorize all mints (`did.update(... mint_1.extend(mint_2)...)`), matching
 the canonical bulk-mint pattern in chia-sdk-driver's own `test_bulk_mint`. Returns the coin spends +
-the list of resulting `Nft`s.
+the launcher ids. This builds the launcher loop only — correct for N=1 (the DID singleton parents the
+one launcher directly).
+
+**`build_bulk_mint_funded`** (#221) — the multi-item (N>1) real-mint path. Each item's
+`IntermediateLauncher` prints 1 mojo (a 0-value intermediate coin's own spend creates a 1-mojo
+launcher coin) that must be donated by another coin in the SAME bundle — Chia's coin-value
+conservation is bundle-wide, not per-coin — and the DID's `update` spend conserves its own value
+exactly, so it cannot fund more than one item. This variant takes a separate XCH `funding_coin` +
+`funding_synthetic_key` and spends the coin through the standard layer contributing exactly
+`items.len()` mojos, returning any excess as change to the funding key's own puzzle hash (a
+larger-than-needed coin is never silently burned as fee). Errors if `funding_coin.amount <
+items.len()`. Wasm: `bulkMintFunded(minterSyntheticKey, did, collection, items, recipientPuzzleHash,
+fundingCoin, fundingSyntheticKey) -> BulkMintResult`. Validated end-to-end on the Chia simulator for
+N=3 (funded, with change returned) — the twin of digstore's `build_collection_mint_funded`; the two
+builders' funding contract is kept in lockstep.
 
 ---
 
@@ -135,8 +149,8 @@ Every builder must be callable from JS so the asset SDK + CLI can wrap them.
 - **`issue_cat`** — single-issuance (genesis-by-coin-id) CAT mint. Wasm: `issueCat(...) -> {coinSpends, assetId, cats}`.
 - **`encode_offer` / `decode_offer`** — canonical offer-text ↔ spend-bundle, via chia-sdk-driver's
   compression. Wasm: `encodeOffer(spendBundle) -> string`, `decodeOffer(text) -> {coinSpends, aggregatedSignature}`.
-- Existing store builders + `mintNft` + `bulkMint` + `createDid` + `issueCat` + offer codec are the
-  full asset surface the SDK/CLI wraps.
+- Existing store builders + `mintNft` + `bulkMint` + `bulkMintFunded` + `createDid` + `issueCat` +
+  offer codec are the full asset surface the SDK/CLI wraps.
 
 Full *offer construction* (build an offer that swaps asset A for B with royalties) needs trade
 managers and a richer coin-selection model than the keyless boundary cleanly supports; v1 ships the
