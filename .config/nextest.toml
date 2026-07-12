@@ -1,0 +1,6 @@
+# nextest config: retry flaky tests up to 2 times before failing the run
+# (CLAUDE.md flaky-test-management, #489). Applies to the default profile
+# used by both `cargo nextest run` (ci.yml rust job) and
+# `cargo llvm-cov nextest` (ci.yml coverage job).
+[profile.default]
+retries = 2

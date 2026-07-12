@@ -31,14 +31,19 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+      - uses: taiki-e/install-action@81ee1d48d9194cdcab880cbdc7d36e87d39874cb # v2.62.45
+        with:
+          tool: cargo-nextest
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy (core)
         run: cargo clippy -p chip35-dl-coin --all-targets -- -D warnings
       - name: clippy (wasm)
         run: cargo clippy -p chip35-dl-coin-wasm --target wasm32-unknown-unknown -- -D warnings
+      # cargo-nextest (retries=2 via .config/nextest.toml, CLAUDE.md flaky-test-management #489)
+      # surfaces + auto-retries flaky tests instead of hard-failing CI on a one-off flake.
       - name: test (core — incl. the Simulator validation gate)
-        run: cargo test -p chip35-dl-coin
+        run: cargo nextest run -p chip35-dl-coin
 
   coverage:
     name: rust coverage gate (>=80% lines)
@@ -53,15 +58,21 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
       - uses: taiki-e/install-action@81ee1d48d9194cdcab880cbdc7d36e87d39874cb # v2.62.45
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov,cargo-nextest
       # Measure unit-test coverage for the core crate and FAIL the build below the floor. The gate is
       # set above the ecosystem-wide 80% minimum and just below the current measured coverage
       # (96% lines / 92% regions) so it ratchets: a change that drops coverage breaks CI. The wasm
       # crate is publish=false thin bindings over core and is covered by the wasm JS-shape job, so the
       # coverage gate targets the core crate's own logic.
-      - name: coverage (core — fail under 90% lines / 85% regions)
+      #
+      # Driven through `cargo llvm-cov nextest` (NOT a separate `cargo nextest run` + `cargo llvm-cov`
+      # pair — running nextest and llvm-cov as independent steps collects zero coverage instrumentation
+      # from the nextest run and silently fails this gate, CLAUDE.md flaky-test-management #489/#488)
+      # so nextest's flaky-retry (.config/nextest.toml, retries=2) still drives the coverage-instrumented
+      # run.
+      - name: coverage (core — fail under 90% lines / 85% regions, via nextest)
         run: >-
-          cargo llvm-cov -p chip35-dl-coin
+          cargo llvm-cov nextest -p chip35-dl-coin
           --fail-under-lines 90
           --fail-under-regions 85
 
