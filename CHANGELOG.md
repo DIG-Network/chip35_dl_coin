@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.14.2] - 2026-07-17
+
+### Bug Fixes
+- **nft:** Emit bare root-pinned URN for NFT media URIs (drop dig:// prefix) (#6)
+
 ## [0.14.1] - 2026-07-12
 
 ### CI
