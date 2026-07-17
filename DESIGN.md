@@ -24,7 +24,7 @@ builders the toolkit needs and to expose them at the wasm boundary with a stable
 |---|---|---|
 | `store.rs` | CHIP-0035 DataStore builders (mint/update/melt/oracle/addFee/serialization) PLUS the delegation builders (`admin`/`writer`/`oracle` `delegated_puzzle_from_key`) for hub Teams + revocable deploy tokens. | #43, #17 |
 | `metadata.rs` | CHIP-0007 metadata builder + validator. Generates valid CHIP-0007 JSON, computes data/metadata/license hashes from bytes, validates URI↔hash agreement + schema. | #36 |
-| `nft.rs` | Single NFT mint (incl. the dig://-capsule media path) + DID-attributed transfer condition. | #33 |
+| `nft.rs` | Single NFT mint (incl. the URN-addressed capsule media path) + DID-attributed transfer condition. | #33 |
 | `collection.rs` | CHIP-0007 collection model + per-item metadata generation from a traits manifest + bulk mint via intermediate launchers. | #34 |
 | `did.rs` | DID (creator identity) creation builder. | #35 |
 | `cat.rs` | CAT issuance builder. | #35 |
@@ -87,20 +87,20 @@ Errors are a dedicated `MetadataError` so JS gets actionable messages.
 ## #33 — NFT media in a DIG capsule (`nft.rs`)
 
 The killer differentiator: an NFT whose media + metadata live in a DIG capsule, addressed by a
-`dig://` URN, with an https gateway fallback URI, and hashes computed from the real bytes (via #36).
+root-pinned URN, with an https gateway fallback URI, and hashes computed from the real bytes (via #36).
 This crate does **not** build the capsule (that is `digstore`); it exposes the spend builder that
-takes the already-computed hashes + the dig:// URIs and mints the NFT.
+takes the already-computed hashes + the URN URIs and mints the NFT.
 
 **`mint_nft`** parameters: minter synthetic key, selected coins, the NFT `data_uris`
-(`["dig://urn:dig:...", "https://gateway.../..."]` — dig:// first, https fallback second),
+(`["urn:dig:chia:<store>:<root>/art.png", "https://gateway.../..."]` — a bare root-pinned URN first, https fallback second),
 `data_hash`, `metadata_uris` + `metadata_hash`, `license_uris` + `license_hash`,
 `edition_number`/`edition_total`, `royalty_puzzle_hash`, `royalty_basis_points`,
 `p2_puzzle_hash` (recipient), optional `did` attribution (launcher id + DID inner puzzle hash →
 `TransferNft`), and `fee`. It builds the standard NFT mint via `Launcher::mint_nft` and returns the
 coin spends + the resulting `Nft` summary (launcher id, coin, royalty).
 
-The dig://-vs-https ordering is a convention, not enforced on-chain: the builder accepts whatever
-URI list the caller passes. The toolkit/CLI is responsible for putting the dig:// URN first.
+The URN-vs-https ordering is a convention, not enforced on-chain: the builder accepts whatever
+URI list the caller passes. The toolkit/CLI is responsible for putting the bare root-pinned URN first.
 
 ---
 
@@ -588,7 +588,7 @@ Once a new `@dignetwork/chip35-dl-coin-wasm` is cut (human-gated):
   metadata).
 - **digstore** CLI (`digstore nft|collection|did|offer`, #35) and the asset SDK wrap the same
   exports; digstore writes the capsule + computes the byte hashes, then calls `mintNft` with the
-  dig:// URN + computed hashes.
+  bare root-pinned URN + computed hashes.
 - **#46 monetization**: **dig-sdk** (`/spend` subpath) re-exports `buildPayment`, `buildCatPayment`,
   `paymentNonce`, `verifyPaymentReceipt`, `proveNftOwnership`, `proveCollectionMembership`,
   `readNftOwnership`; it should add an ergonomic `Monetization`/`Paywall` helper (issue nonce → build

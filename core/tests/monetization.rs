@@ -275,9 +275,9 @@ fn paywall_end_to_end_receipt_self_verifies() {
 
 fn dig_media() -> NftMediaMetadata {
     NftMediaMetadata {
-        data_uris: vec!["dig://urn:dig:chia:s:r/a.png".into()],
+        data_uris: vec!["urn:dig:chia:s:r/a.png".into()],
         data_hash: Some(Bytes32::new([1u8; 32])),
-        metadata_uris: vec!["dig://urn:dig:chia:s:r/m.json".into()],
+        metadata_uris: vec!["urn:dig:chia:s:r/m.json".into()],
         metadata_hash: Some(Bytes32::new([2u8; 32])),
         license_uris: vec![],
         license_hash: None,

@@ -33,12 +33,12 @@ fn dig_media() -> NftMediaMetadata {
     let meta = b"{\"format\":\"CHIP-0007\",\"name\":\"x\"}";
     NftMediaMetadata {
         data_uris: vec![
-            "dig://urn:dig:chia:store123:root456/art.png".into(),
+            "urn:dig:chia:store123:root456/art.png".into(),
             "https://gateway.dig.net/store123/root456/art.png".into(),
         ],
         data_hash: Some(sha256(data)),
         metadata_uris: vec![
-            "dig://urn:dig:chia:store123:root456/metadata.json".into(),
+            "urn:dig:chia:store123:root456/metadata.json".into(),
             "https://gateway.dig.net/store123/root456/metadata.json".into(),
         ],
         metadata_hash: Some(sha256(meta)),
@@ -281,9 +281,9 @@ fn manifest_items(n: usize) -> Vec<ManifestItem> {
                 value: i.to_string(),
             }],
             media: ManifestMedia {
-                data_uris: vec![format!("dig://urn:dig:chia:store:root/item{i}.png")],
+                data_uris: vec![format!("urn:dig:chia:store:root/item{i}.png")],
                 data_hash: Some(sha256(format!("bytes-{i}").as_bytes())),
-                metadata_uris: vec![format!("dig://urn:dig:chia:store:root/item{i}.json")],
+                metadata_uris: vec![format!("urn:dig:chia:store:root/item{i}.json")],
                 metadata_hash: Some(sha256(format!("meta-{i}").as_bytes())),
                 license_uris: vec![],
                 license_hash: None,

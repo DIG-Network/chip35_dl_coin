@@ -1,12 +1,12 @@
 //! NFT mint spend builders (roadmap #33 / #35).
 //!
 //! Builds the keyless coin spends that mint a single NFT — including the DIG-capsule media path
-//! where the NFT's `data_uris` / `metadata_uris` point at a `dig://` URN (with an https gateway
+//! where the NFT's `data_uris` / `metadata_uris` point at a root-pinned URN (with an https gateway
 //! fallback URI) and the hashes are computed from the real bytes (via [`crate::metadata`]).
 //!
 //! This crate does NOT build the capsule that stores the media — that is `digstore`. It exposes the
 //! spend builder that takes the already-computed hashes + URIs and mints the NFT. URI ordering
-//! (dig:// first, https fallback second) is a toolkit convention; the builder accepts whatever list
+//! (URN first, https fallback second) is a toolkit convention; the builder accepts whatever list
 //! the caller passes.
 
 use chia_bls::PublicKey;
@@ -33,11 +33,11 @@ pub struct DidAttribution {
 
 /// The on-chain NFT metadata fields, with hashes already computed from the real bytes (#36).
 ///
-/// `*_uris` are ordered by the caller; the DIG toolkit puts the `dig://` URN first and an https
+/// `*_uris` are ordered by the caller; the DIG toolkit puts the root-pinned URN first and an https
 /// gateway URL second so a verifier prefers the permanent capsule and falls back to the gateway.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct NftMediaMetadata {
-    /// URIs serving the primary media (dig:// first, https fallback second by convention).
+    /// URIs serving the primary media (URN first, https fallback second by convention).
     pub data_uris: Vec<String>,
     /// `sha256(media_bytes)` — pinned on-chain, MUST match what `data_uris` serve.
     pub data_hash: Option<Bytes32>,
@@ -82,7 +82,7 @@ impl NftMediaMetadata {
 /// Everything needed to mint one NFT (a single-item mint; bulk mint is in [`crate::collection`]).
 #[derive(Clone, Debug)]
 pub struct NftMintParams {
-    /// The on-chain media metadata + hashes (dig:// + https fallback URIs).
+    /// The on-chain media metadata + hashes (URN + https fallback URIs).
     pub metadata: NftMediaMetadata,
     /// The puzzle hash that will own the minted NFT (the recipient).
     pub p2_puzzle_hash: Bytes32,

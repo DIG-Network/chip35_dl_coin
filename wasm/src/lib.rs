@@ -650,7 +650,7 @@ pub fn validate_chip0007(
     })
 }
 
-/// Mint a single NFT whose media lives in a DIG capsule (`dig://` URN + https gateway fallback URIs,
+/// Mint a single NFT whose media lives in a DIG capsule (root-pinned URN + https gateway fallback URIs,
 /// hashes computed from real bytes). `params` is `NftMintParams`. Returns
 /// `{ coinSpends, launcherId, nftCoin }`.
 #[wasm_bindgen(js_name = "mintNft", unchecked_return_type = "NftMintResult")]

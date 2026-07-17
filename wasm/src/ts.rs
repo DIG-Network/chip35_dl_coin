@@ -161,7 +161,7 @@ export interface DidAttribution {
   innerPuzzleHash: Uint8Array;
 }
 
-/** On-chain NFT media metadata (dig:// + https fallback URIs + computed hashes). */
+/** On-chain NFT media metadata (URN + https fallback URIs + computed hashes). */
 export interface NftMediaMetadata {
   dataUris?: string[];
   dataHash?: Uint8Array;

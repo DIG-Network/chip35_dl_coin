@@ -16,7 +16,7 @@ use wasm_bindgen::JsValue;
 
 use crate::types::{bytes32, serde_bytes_opt};
 
-/// JS shape of an NFT's on-chain media metadata (dig:// + https fallback URIs + computed hashes).
+/// JS shape of an NFT's on-chain media metadata (URN + https fallback URIs + computed hashes).
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NftMediaMetadata {
