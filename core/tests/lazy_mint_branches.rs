@@ -32,9 +32,9 @@ fn coin(ph: Bytes32, amount: u64) -> Coin {
 fn item_zero_editions(i: usize) -> LazyMintItem {
     LazyMintItem {
         metadata: NftMediaMetadata {
-            data_uris: vec![format!("dig://urn:dig:chia:store:root/item{i}.png")],
+            data_uris: vec![format!("urn:dig:chia:store:root/item{i}.png")],
             data_hash: Some(sha256(format!("bytes-{i}").as_bytes())),
-            metadata_uris: vec![format!("dig://urn:dig:chia:store:root/item{i}.json")],
+            metadata_uris: vec![format!("urn:dig:chia:store:root/item{i}.json")],
             metadata_hash: Some(sha256(format!("meta-{i}").as_bytes())),
             license_uris: vec![],
             license_hash: None,

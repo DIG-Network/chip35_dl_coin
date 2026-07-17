@@ -60,7 +60,7 @@ pub struct ManifestItem {
     /// Per-item traits.
     #[serde(default)]
     pub attributes: Vec<Attribute>,
-    /// On-chain media metadata + hashes for this item (dig:// + https fallback URIs).
+    /// On-chain media metadata + hashes for this item (URN + https fallback URIs).
     pub media: ManifestMedia,
 }
 
@@ -68,7 +68,7 @@ pub struct ManifestItem {
 /// hex-hash shape for the parsed manifest).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ManifestMedia {
-    /// Primary media URIs (dig:// first, https fallback second by convention).
+    /// Primary media URIs (URN first, https fallback second by convention).
     #[serde(default)]
     pub data_uris: Vec<String>,
     /// `sha256(media_bytes)`.

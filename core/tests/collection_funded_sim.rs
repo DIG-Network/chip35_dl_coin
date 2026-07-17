@@ -40,7 +40,7 @@ fn items_n(n: usize) -> Vec<ManifestItem> {
             description: None,
             attributes: vec![],
             media: ManifestMedia {
-                data_uris: vec![format!("dig://urn:dig:chia:store:root/item{i}.png")],
+                data_uris: vec![format!("urn:dig:chia:store:root/item{i}.png")],
                 data_hash: Some(sha256(format!("bytes-{i}").as_bytes())),
                 ..Default::default()
             },

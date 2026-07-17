@@ -96,9 +96,9 @@ fn create_did_is_deterministic() {
 
 fn media_with_editions(num: u64, total: u64) -> NftMediaMetadata {
     NftMediaMetadata {
-        data_uris: vec!["dig://urn:dig:chia:s:r/a.png".into()],
+        data_uris: vec!["urn:dig:chia:s:r/a.png".into()],
         data_hash: Some(Bytes32::new([1u8; 32])),
-        metadata_uris: vec!["dig://urn:dig:chia:s:r/a.json".into()],
+        metadata_uris: vec!["urn:dig:chia:s:r/a.json".into()],
         metadata_hash: Some(Bytes32::new([2u8; 32])),
         license_uris: vec![],
         license_hash: None,

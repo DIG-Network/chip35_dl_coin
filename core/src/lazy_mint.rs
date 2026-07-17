@@ -84,7 +84,7 @@ pub enum LazyMintPolicy {
     },
 }
 
-/// One precommitted item: its on-chain media metadata (dig:// + https fallback URIs + hashes) and its
+/// One precommitted item: its on-chain media metadata (URN + https fallback URIs + hashes) and its
 /// royalty. The recipient/royalty puzzle hash come from the [`Collection`] (shared across items).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LazyMintItem {
