@@ -503,6 +503,7 @@ dependencies = [
  "clvm-traits",
  "clvm-utils",
  "clvmr",
+ "dig-constants",
  "hex",
  "hex-literal",
  "serde",
@@ -721,6 +722,17 @@ dependencies = [
  "const-oid",
  "pem-rfc7468",
  "zeroize",
+]
+
+[[package]]
+name = "dig-constants"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccdefea6607b80ecc266dcdb977cb534bc5e836daf5094ac96583c85ede72f13"
+dependencies = [
+ "chia-consensus",
+ "chia-protocol",
+ "hex-literal",
 ]
 
 [[package]]
