@@ -1,6 +1,6 @@
 [package]
 name = "chip35-dl-coin-wasm"
-version = "0.14.2"
+version = "0.14.3"
 edition = "2021"
 license = "MIT"
 publish = false

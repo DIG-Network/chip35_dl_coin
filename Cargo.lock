@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "chip35-dl-coin-wasm"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "chip35-dl-coin",
  "console_error_panic_hook",
