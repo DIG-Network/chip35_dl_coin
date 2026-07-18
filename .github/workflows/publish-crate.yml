@@ -1,0 +1,55 @@
+# Publish the `chip35-dl-coin` Rust CORE crate to crates.io.
+#
+# This is DISTINCT from `publish-npm.yml`, which publishes the `wasm/` member as the
+# `@dignetwork/chip35-dl-coin-wasm` npm package. The CORE crate is the offline spend-bundle builder
+# consumed by other DIG Rust repos (e.g. dig-app's wallet host), which — per the ecosystem no-git-deps
+# policy — must depend on it BY VERSION from crates.io, never by git.
+#
+# Trigger: a manual `workflow_dispatch` (the first publish + any deliberate re-publish) or a pushed
+# `core-v*` tag. The `core-v*` prefix keeps this independent of the wasm/npm `v*` release tags so the
+# two publishable units version + release on their own cadence.
+#
+# The publish is gated on the org `CARGO_REGISTRY_TOKEN` secret; if it is absent the job fails loudly
+# with setup instructions rather than silently skipping. `cargo publish` refuses to re-publish an
+# already-taken version, so re-running after a successful publish is a safe no-op for that version.
+name: Publish crate to crates.io
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'core-v*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish chip35-dl-coin to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify the core crate packages cleanly
+        run: cargo package -p chip35-dl-coin
+
+      - name: Require the crates.io token
+        run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not available to this repository."
+            echo "Add a crates.io API token as the CARGO_REGISTRY_TOKEN secret (org or repo) to enable publishing."
+            exit 1
+          fi
+
+      - name: Publish chip35-dl-coin
+        run: cargo publish -p chip35-dl-coin --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
