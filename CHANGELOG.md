@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.14.3] - 2026-07-18
+
+### CI
+- **chip35:** Publish the core chip35-dl-coin crate to crates.io (#7)
+
 ## [0.14.2] - 2026-07-17
 
 ### Bug Fixes
