@@ -40,9 +40,8 @@ use crate::error::WalletError;
 ///
 /// CONTRACT: byte-identical to digstore-chain's `DIG_ASSET_ID` and DataLayer-Driver's. Do not change
 /// without changing every consumer in lockstep (SYSTEM.md → Shared contracts → DIG CAT payment).
-pub const DIG_ASSET_ID: Bytes32 = Bytes32::new(hex!(
-    "a406d3a9de984d03c9591c10d917593b434d5263cabe2b42f6b367df16832f81"
-));
+/// Re-exported from `dig-constants` — the canonical source of truth.
+pub use dig_constants::DIG_ASSET_ID;
 
 /// The DIG treasury's INNER (standard) puzzle hash — the recipient of every per-capsule DIG payment.
 ///
