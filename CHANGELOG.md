@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.15.0] - 2026-07-29
+
+### Features
+- **chip35:** Add non-DID funded bulk-mint builder bulkMintFundedNoDid (#1132)
+
 ## [0.14.4] - 2026-07-18
 
 ### Refactor
