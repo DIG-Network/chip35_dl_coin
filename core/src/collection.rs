@@ -295,8 +295,13 @@ pub fn build_bulk_mint_funded_no_did(
     }
 
     let launcher_mojos = items.len() as u64; // 1 mojo per intermediate-launcher (see funding contract).
-    let needed = launcher_mojos + fee;
-    let total_amount: u64 = selected_coins.iter().map(|c| c.amount).sum();
+    let needed = launcher_mojos
+        .checked_add(fee)
+        .ok_or_else(|| WalletError::Parse("launcher mojos + fee overflows u64".to_string()))?;
+    let total_amount: u64 = selected_coins.iter().try_fold(0u64, |acc, c| {
+        acc.checked_add(c.amount)
+            .ok_or_else(|| WalletError::Parse("selected-coin amount sum overflows u64".to_string()))
+    })?;
     if total_amount < needed {
         return Err(WalletError::Parse(format!(
             "selected coins total {total_amount} mojo but minting {} item(s) with a {fee}-mojo fee \
@@ -337,7 +342,9 @@ pub fn build_bulk_mint_funded_no_did(
     if fee > 0 {
         lead_conditions = lead_conditions.reserve_fee(fee);
     }
-    let change = total_amount - needed;
+    let change = total_amount
+        .checked_sub(needed)
+        .ok_or_else(|| WalletError::Parse("change calculation underflows u64".to_string()))?;
     if change > 0 {
         lead_conditions = lead_conditions.create_coin(minter_puzzle_hash, change, Memos::None);
     }

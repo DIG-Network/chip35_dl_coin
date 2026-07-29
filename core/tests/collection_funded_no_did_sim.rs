@@ -219,3 +219,26 @@ fn build_bulk_mint_funded_no_did_rejects_empty_inputs() {
     .unwrap_err();
     assert!(matches!(&empty_coins, Error::Parse(m) if m.contains("selected_coins is empty")));
 }
+
+/// Funding arithmetic overflow is detected and returns a clean error, never a panic or miscomputed bundle.
+#[test]
+fn funding_arithmetic_overflow_is_a_clean_error() {
+    let mut sim = Simulator::new();
+    let minter = sim.bls(u64::MAX);
+    let one = items_n(1);
+
+    // fee = u64::MAX causes launcher_mojos (1) + fee to overflow during checked_add.
+    let err = build_bulk_mint_funded_no_did(
+        minter.pk,
+        &collection(minter.puzzle_hash),
+        &one,
+        minter.puzzle_hash,
+        vec![minter.coin],
+        u64::MAX,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, Error::Parse(m) if m.contains("overflows u64")),
+        "expected overflow error, got: {err}"
+    );
+}
