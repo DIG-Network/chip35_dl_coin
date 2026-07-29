@@ -140,6 +140,23 @@ fundingCoin, fundingSyntheticKey) -> BulkMintResult`. Validated end-to-end on th
 N=3 (funded, with change returned) — the twin of digstore's `build_collection_mint_funded`; the two
 builders' funding contract is kept in lockstep.
 
+**`build_bulk_mint_funded_no_did`** (#1132) — the NON-DID multi-item (N>=1) real-mint path, for a
+caller that has no on-chain DID (the hub's non-DID bulk mint). It roots every item's
+`IntermediateLauncher` at the LEAD funding coin (`selected_coins[0]`) instead of a DID coin, and emits
+the collected mint conditions from that coin's own standard-puzzle spend — so there is no DID
+authorization leg and no `TransferNft`/DID attribution on the minted NFTs. Funding contract: the mint
+needs `items.len()` mojos (1 per intermediate launcher) PLUS a single `fee`. All of `selected_coins`
+are spent through `minter_synthetic_key`'s standard puzzle — the lead coin carries the mint conditions,
+reserves the `fee` as the bundle's network fee (a `ReserveFee` condition, never silently burned), and
+returns the change (`sum(selected) − items.len() − fee`) to the minter's own puzzle hash; the remaining
+coins assert concurrent spend with the lead coin so the whole set is consumed atomically in ONE spend
+(each coin spent exactly once — no double-spend). Errors (`WalletError::Parse`) if `items` is empty,
+`selected_coins` is empty, or the coin set totals less than `items.len() + fee`. Wasm:
+`bulkMintFundedNoDid(minterSyntheticKey, collection, items, recipientPuzzleHash, selectedCoins, fee) ->
+BulkMintResult`. Validated end-to-end on the Chia simulator (N=3 from a two-coin set with a fee + change
+returned, and N=1 exact). Mirrors the funding shape of digstore's non-DID collection mint; the funding
+contract (1 mojo per item + a single fee, change returned) is kept in lockstep.
+
 ---
 
 ## #35 — Reachability via wasm (`did.rs`, `cat.rs`, `offer.rs` + wrappers)
@@ -151,7 +168,7 @@ Every builder must be callable from JS so the asset SDK + CLI can wrap them.
 - **`issue_cat`** — single-issuance (genesis-by-coin-id) CAT mint. Wasm: `issueCat(...) -> {coinSpends, assetId, cats}`.
 - **`encode_offer` / `decode_offer`** — canonical offer-text ↔ spend-bundle, via chia-sdk-driver's
   compression. Wasm: `encodeOffer(spendBundle) -> string`, `decodeOffer(text) -> {coinSpends, aggregatedSignature}`.
-- Existing store builders + `mintNft` + `bulkMint` + `bulkMintFunded` + `createDid` + `issueCat` +
+- Existing store builders + `mintNft` + `bulkMint` + `bulkMintFunded` + `bulkMintFundedNoDid` + `createDid` + `issueCat` +
   offer codec are the full asset surface the SDK/CLI wraps.
 
 Full *offer construction* (build an offer that swaps asset A for B with royalties) needs trade

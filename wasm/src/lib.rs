@@ -53,6 +53,7 @@ const BUILDERS: &[&str] = &[
     "mintNftWithDid",
     "bulkMint",
     "bulkMintFunded",
+    "bulkMintFundedNoDid",
     "generateItemMetadata",
     "createDid",
     "issueCat",
@@ -535,10 +536,10 @@ use crate::asset_types::{
 };
 use chip35_dl_coin::{
     build_bulk_mint as core_bulk_mint, build_bulk_mint_funded as core_bulk_mint_funded,
-    create_did as core_create_did, decode_offer as core_decode_offer,
-    encode_offer as core_encode_offer, generate_item_metadata as core_generate_item_metadata,
-    issue_cat as core_issue_cat, mint_nft as core_mint_nft,
-    mint_nft_with_did as core_mint_nft_with_did, sha256 as core_sha256,
+    build_bulk_mint_funded_no_did as core_bulk_mint_funded_no_did, create_did as core_create_did,
+    decode_offer as core_decode_offer, encode_offer as core_encode_offer,
+    generate_item_metadata as core_generate_item_metadata, issue_cat as core_issue_cat,
+    mint_nft as core_mint_nft, mint_nft_with_did as core_mint_nft_with_did, sha256 as core_sha256,
     validate_uri_hash as core_validate_uri_hash, Did as RustDid, DidInfo as RustDidInfo,
 };
 
@@ -915,6 +916,67 @@ pub fn bulk_mint_funded(
         bytes32(recipient_puzzle_hash)?,
         native_funding.to_native()?,
         public_key(funding_synthetic_key)?,
+    )
+    .map_err(js_err_from)?;
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Out {
+        coin_spends: Vec<crate::types::CoinSpend>,
+        launcher_ids: Vec<serde_bytes::ByteBuf>,
+    }
+    to_js(&Out {
+        coin_spends: resp
+            .coin_spends
+            .iter()
+            .map(crate::types::CoinSpend::from_native)
+            .collect(),
+        launcher_ids: resp
+            .launcher_ids
+            .iter()
+            .map(|id| serde_bytes::ByteBuf::from(id.to_vec()))
+            .collect(),
+    })
+}
+
+/// Bulk-mint N items into a collection FUNDED by a COIN SET with a SINGLE network fee, with NO
+/// on-chain DID (#1132) — the hub's non-DID bulk-mint path. Every item's intermediate launcher prints
+/// 1 mojo that must be donated bundle-wide, so `selectedCoins` (all spent via `minterSyntheticKey`'s
+/// standard puzzle) must total at least `items.length + fee` mojos: `items.length` funds the singleton
+/// launchers, `fee` is reserved as the network fee, and any excess returns as change to the minter's
+/// own address. No DID coin, no DID authorization spend, no DID attribution on the NFTs. Returns
+/// `{ coinSpends, launcherIds }`.
+#[wasm_bindgen(
+    js_name = "bulkMintFundedNoDid",
+    unchecked_return_type = "BulkMintResult"
+)]
+pub fn bulk_mint_funded_no_did(
+    minter_synthetic_key: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Collection")] collection: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "ManifestItem[]")] items: JsValue,
+    recipient_puzzle_hash: &[u8],
+    #[wasm_bindgen(unchecked_param_type = "Coin[]")] selected_coins: JsValue,
+    fee: u64,
+) -> Result<JsValue, JsValue> {
+    let col: JsCollection = from_js(collection)?;
+    let items: Vec<JsManifestItem> = from_js(items)?;
+    let native_items = items
+        .iter()
+        .map(JsManifestItem::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+    let coins: Vec<crate::types::Coin> = from_js(selected_coins)?;
+    let native_coins = coins
+        .iter()
+        .map(crate::types::Coin::to_native)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let resp = core_bulk_mint_funded_no_did(
+        public_key(minter_synthetic_key)?,
+        &col.to_native()?,
+        &native_items,
+        bytes32(recipient_puzzle_hash)?,
+        native_coins,
+        fee,
     )
     .map_err(js_err_from)?;
 

@@ -253,6 +253,109 @@ pub fn build_bulk_mint_funded(
     })
 }
 
+/// Build a NON-DID MULTI-item (N>=1) bulk mint FUNDED by a COIN SET with a SINGLE network fee (#1132).
+///
+/// This is the DID-free twin of [`build_bulk_mint_funded`]: it mints every item in `items` into
+/// `collection` in ONE spend without any on-chain DID coin. Where the DID path roots each item's
+/// [`IntermediateLauncher`] at the DID coin and authorizes the mints with a `did.update` spend, this
+/// path roots them at the LEAD funding coin (`selected_coins[0]`) and emits the collected mint
+/// conditions from that coin's own standard-puzzle spend — so no DID authorization leg exists and no
+/// `TransferNft`/DID attribution is stamped onto the minted NFTs.
+///
+/// # Funding contract
+/// Every item's intermediate launcher prints 1 mojo (a 0-value intermediate coin's own spend creates a
+/// 1-mojo launcher coin) that must be donated from the SAME bundle (Chia coin-value conservation is
+/// bundle-wide). The mint therefore needs `items.len()` mojos for the launchers PLUS the single `fee`.
+/// All of `selected_coins` are spent through `minter_synthetic_key`'s standard puzzle (the lead coin
+/// carries the mint conditions; the rest assert concurrent spend with it so the bundle is atomic),
+/// contributing `items.len() + fee` mojos to the bundle. The `fee` is reserved as the bundle's network
+/// fee via a `ReserveFee` condition (NEVER silently burned), and any excess
+/// (`sum(selected) − items.len() − fee`) is returned as CHANGE to the minter's own puzzle hash.
+///
+/// This mirrors the funding shape digstore uses for its non-DID collection mint; the funding contract
+/// (1 mojo per item + a single fee, change returned) is kept in lockstep. **Pure: does NOT sign or
+/// broadcast.**
+///
+/// # Errors
+/// [`WalletError::Parse`] if `items` is empty, if `selected_coins` is empty, or if the selected coins'
+/// total is less than `items.len() + fee`; [`WalletError::Driver`] on spend-construction failure.
+pub fn build_bulk_mint_funded_no_did(
+    minter_synthetic_key: PublicKey,
+    collection: &Collection,
+    items: &[ManifestItem],
+    recipient_puzzle_hash: Bytes32,
+    selected_coins: Vec<Coin>,
+    fee: u64,
+) -> Result<BulkMintResponse, WalletError> {
+    if items.is_empty() {
+        return Err(WalletError::Parse("items is empty".to_string()));
+    }
+    if selected_coins.is_empty() {
+        return Err(WalletError::Parse("selected_coins is empty".to_string()));
+    }
+
+    let launcher_mojos = items.len() as u64; // 1 mojo per intermediate-launcher (see funding contract).
+    let needed = launcher_mojos
+        .checked_add(fee)
+        .ok_or_else(|| WalletError::Parse("launcher mojos + fee overflows u64".to_string()))?;
+    let total_amount: u64 = selected_coins.iter().try_fold(0u64, |acc, c| {
+        acc.checked_add(c.amount)
+            .ok_or_else(|| WalletError::Parse("selected-coin amount sum overflows u64".to_string()))
+    })?;
+    if total_amount < needed {
+        return Err(WalletError::Parse(format!(
+            "selected coins total {total_amount} mojo but minting {} item(s) with a {fee}-mojo fee \
+             needs at least {needed} mojo (1 mojo per item for the singleton launchers + the fee)",
+            items.len(),
+        )));
+    }
+
+    let mut ctx = SpendContext::new();
+    let p2 = StandardLayer::new(minter_synthetic_key);
+    let minter_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(minter_synthetic_key).into();
+
+    // The lead coin roots every intermediate launcher and carries the collected mint conditions; the
+    // rest of the coin set only asserts concurrent spend so the whole set is consumed atomically.
+    let lead_coin = selected_coins[0];
+    let lead_coin_name = lead_coin.coin_id();
+
+    let (all_mint_conditions, launcher_ids) = build_bulk_mint_launchers(
+        &mut ctx,
+        lead_coin_name,
+        None,
+        collection,
+        items,
+        recipient_puzzle_hash,
+    )?;
+
+    for coin in selected_coins.into_iter().skip(1) {
+        p2.spend(
+            &mut ctx,
+            coin,
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
+        )?;
+    }
+
+    // The lead coin emits the mint conditions, reserves the network fee, and returns the change so the
+    // excess is never silently burned as fee.
+    let mut lead_conditions = all_mint_conditions;
+    if fee > 0 {
+        lead_conditions = lead_conditions.reserve_fee(fee);
+    }
+    let change = total_amount
+        .checked_sub(needed)
+        .ok_or_else(|| WalletError::Parse("change calculation underflows u64".to_string()))?;
+    if change > 0 {
+        lead_conditions = lead_conditions.create_coin(minter_puzzle_hash, change, Memos::None);
+    }
+    p2.spend(&mut ctx, lead_coin, lead_conditions)?;
+
+    Ok(BulkMintResponse {
+        coin_spends: ctx.take(),
+        launcher_ids,
+    })
+}
+
 /// Build the per-item intermediate launchers + the single DID-authorizing spend into a caller-provided
 /// `ctx`, returning the minted launcher ids in manifest order. Shared by [`build_bulk_mint`] and
 /// [`build_bulk_mint_funded`]; the launcher loop is N-agnostic (the only thing an N>1 mint additionally
@@ -265,16 +368,46 @@ fn build_bulk_mint_in(
     items: &[ManifestItem],
     recipient_puzzle_hash: Bytes32,
 ) -> Result<Vec<Bytes32>, WalletError> {
-    if items.is_empty() {
-        return Err(WalletError::Parse("items is empty".to_string()));
-    }
-
     let p2 = StandardLayer::new(minter_synthetic_key);
 
     let did_attr = DidAttribution {
         launcher_id: did.info.launcher_id,
         inner_puzzle_hash: did.info.inner_puzzle_hash().into(),
     };
+
+    let (all_mint_conditions, launcher_ids) = build_bulk_mint_launchers(
+        ctx,
+        did.coin.coin_id(),
+        Some(&did_attr),
+        collection,
+        items,
+        recipient_puzzle_hash,
+    )?;
+
+    // Spend the DID once, authorizing all mints. `did.update` re-creates the DID under its own
+    // standard inner puzzle, emitting the collected mint conditions; the recreated DID is not needed
+    // here (the caller re-fetches it on-chain if it wants to chain further mints).
+    let _recreated_did = did.update(ctx, &p2, all_mint_conditions)?;
+
+    Ok(launcher_ids)
+}
+
+/// Build the per-item [`IntermediateLauncher`] mints rooted at `parent_coin_id`, returning the
+/// collected mint conditions (which the PARENT coin's spend must emit) and the launcher ids in
+/// manifest order. Shared by the DID path ([`build_bulk_mint_in`], parent = the DID coin, with a
+/// `TransferNft` attribution) and the non-DID path ([`build_bulk_mint_funded_no_did`], parent = the
+/// lead funding coin, no attribution). Passing `did_attr` = `None` mints without any DID attribution.
+fn build_bulk_mint_launchers(
+    ctx: &mut SpendContext,
+    parent_coin_id: Bytes32,
+    did_attr: Option<&DidAttribution>,
+    collection: &Collection,
+    items: &[ManifestItem],
+    recipient_puzzle_hash: Bytes32,
+) -> Result<(Conditions, Vec<Bytes32>), WalletError> {
+    if items.is_empty() {
+        return Err(WalletError::Parse("items is empty".to_string()));
+    }
 
     let total = items.len();
     let mut all_mint_conditions = Conditions::new();
@@ -283,32 +416,29 @@ fn build_bulk_mint_in(
     for (i, item) in items.iter().enumerate() {
         let metadata_ptr =
             ctx.alloc_hashed(&item_to_chain_metadata(item, i as u64 + 1, total as u64))?;
-        let transfer = TransferNft::new(
-            Some(did_attr.launcher_id),
-            Vec::new(),
-            Some(did_attr.inner_puzzle_hash),
-        );
+        let transfer = did_attr.map(|did_attr| {
+            TransferNft::new(
+                Some(did_attr.launcher_id),
+                Vec::new(),
+                Some(did_attr.inner_puzzle_hash),
+            )
+        });
         let mut nft_mint = NftMint::new(
             metadata_ptr,
             recipient_puzzle_hash,
             collection.royalty_basis_points,
-            Some(transfer),
+            transfer,
         );
         nft_mint.royalty_puzzle_hash = collection.royalty_puzzle_hash;
 
-        let (mint_conditions, nft) = IntermediateLauncher::new(did.coin.coin_id(), i, total)
+        let (mint_conditions, nft) = IntermediateLauncher::new(parent_coin_id, i, total)
             .create(ctx)?
             .mint_nft(ctx, &nft_mint)?;
         all_mint_conditions = all_mint_conditions.extend(mint_conditions);
         launcher_ids.push(nft.info.launcher_id);
     }
 
-    // Spend the DID once, authorizing all mints. `did.update` re-creates the DID under its own
-    // standard inner puzzle, emitting the collected mint conditions; the recreated DID is not needed
-    // here (the caller re-fetches it on-chain if it wants to chain further mints).
-    let _recreated_did = did.update(ctx, &p2, all_mint_conditions)?;
-
-    Ok(launcher_ids)
+    Ok((all_mint_conditions, launcher_ids))
 }
 
 /// Convert a manifest item into the on-chain [`NftMetadata`] CLVM struct for one bulk-mint slot.
