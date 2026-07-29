@@ -299,6 +299,31 @@ assert.equal(
   "bulkMintFunded adds exactly the funding-coin spend"
 );
 
+// --- #1132: bulkMintFundedNoDid (multi-item mint funded by a COIN SET, single fee, NO DID) ---
+// No DID coin: the coin set funds `items.length` launcher mojos + the fee; excess returns as change.
+// Every selected coin must be spent exactly once (the #304 bug loops a single-mint builder over ONE
+// coin, double-spending it); assert no coin id repeats across the returned spends.
+const noDidCoins = [
+  { parentCoinInfo: ownerPh, puzzleHash: ownerPh, amount: 50n },
+  { parentCoinInfo: ownerPh, puzzleHash: ownerPh, amount: 30n },
+];
+const bulkNoDid = wasm.bulkMintFundedNoDid(synthKey, collection, manifest, ownerPh, noDidCoins, 5n);
+assert.equal(bulkNoDid.launcherIds.length, 2, "bulkMintFundedNoDid one launcher id per item");
+const noDidSpentCoins = bulkNoDid.coinSpends.map((cs) =>
+  `${Buffer.from(cs.coin.parentCoinInfo).toString("hex")}:${Buffer.from(cs.coin.puzzleHash).toString("hex")}:${BigInt(cs.coin.amount)}`
+);
+assert.equal(
+  new Set(noDidSpentCoins).size,
+  noDidSpentCoins.length,
+  "bulkMintFundedNoDid spends no coin more than once (no double-spend)"
+);
+// Underfunded coin set (total < items.length + fee) throws a PARSE_ERROR.
+assert.throws(
+  () => wasm.bulkMintFundedNoDid(synthKey, collection, manifest, ownerPh, [{ parentCoinInfo: ownerPh, puzzleHash: ownerPh, amount: 1n }], 0n),
+  (e) => e.code === "PARSE_ERROR",
+  "bulkMintFundedNoDid rejects an underfunded coin set"
+);
+
 // --- #38: mintNftWithDid (single mint authorized by + attributed to a creator DID) ---
 const didMint = wasm.mintNftWithDid(synthKey, [coin], didForMint, nftParams, 0n);
 assert.ok(didMint.coinSpends.length > 0, "mintNftWithDid coinSpends");

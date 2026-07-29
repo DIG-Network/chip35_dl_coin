@@ -52,8 +52,8 @@ pub use types::SuccessResponse;
 // Asset toolkit (roadmap #33/#34/#35/#36).
 pub use cat::{issue_cat, IssueCatResponse};
 pub use collection::{
-    build_bulk_mint, build_bulk_mint_funded, generate_item_metadata, synthetic_puzzle_hash,
-    BulkMintResponse, Collection, ManifestItem, ManifestMedia,
+    build_bulk_mint, build_bulk_mint_funded, build_bulk_mint_funded_no_did, generate_item_metadata,
+    synthetic_puzzle_hash, BulkMintResponse, Collection, ManifestItem, ManifestMedia,
 };
 pub use did::{create_did, CreateDidResponse};
 // Trustless lazy mint / mint-on-claim (roadmap #40): the creator DID precommits a collection ONCE,
