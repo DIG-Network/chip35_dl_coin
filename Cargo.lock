@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "chip35-dl-coin"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "chia-bls 0.26.0",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "chip35-dl-coin-wasm"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "chip35-dl-coin",
  "console_error_panic_hook",
@@ -726,9 +726,9 @@ dependencies = [
 
 [[package]]
 name = "dig-constants"
-version = "0.5.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccdefea6607b80ecc266dcdb977cb534bc5e836daf5094ac96583c85ede72f13"
+checksum = "194aefd3f9ee813b10b43322c0381dbab55ac6d8cb99bc6c3782e53d60405dd5"
 dependencies = [
  "chia-consensus",
  "chia-protocol",
