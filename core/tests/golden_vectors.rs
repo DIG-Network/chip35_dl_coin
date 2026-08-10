@@ -34,9 +34,9 @@ use chia_puzzle_types::{standard::StandardArgs, DeriveSynthetic};
 use chia_sdk_driver::{Cat, CatInfo, Launcher, SpendContext, StandardLayer};
 use chip35_dl_coin::{
     build_dig_store_payment, build_lazy_mint_claim, build_lazy_mint_commit, build_xch_payment,
-    create_did, master_to_wallet_unhardened, mint_store, sha256, spend_bundle_to_hex, Bytes32,
-    Coin, CoinSpend, Collection, DelegatedPuzzle, LazyMintItem, LazyMintPolicy, NftMediaMetadata,
-    PublicKey, SecretKey, Signature, SpendBundle, DIG_ASSET_ID,
+    create_did, issue_cat, master_to_wallet_unhardened, mint_store, sha256, spend_bundle_to_hex,
+    Bytes32, Coin, CoinSpend, Collection, DelegatedPuzzle, LazyMintItem, LazyMintPolicy,
+    NftMediaMetadata, PublicKey, SecretKey, Signature, SpendBundle, DIG_ASSET_ID,
 };
 
 // ---------------------------------------------------------------------------
@@ -226,6 +226,35 @@ fn golden_create_did() {
 }
 
 // ---------------------------------------------------------------------------
+// Vector: CAT issuance
+// ---------------------------------------------------------------------------
+
+/// Two funding coins, a non-zero fee, and change left over — so the lead coin's issuance
+/// conditions, the follower's concurrent-spend assertion, and the change output are all in the
+/// pinned bytes. This is the eve-issuance path, i.e. the one place the crate reveals a TAIL.
+fn issue_cat_vector() -> Vec<CoinSpend> {
+    let issuer = synthetic(24);
+    let issuer_ph = puzzle_hash(issuer);
+    issue_cat(
+        issuer,
+        vec![coin(25, issuer_ph, 1_000), coin(26, issuer_ph, 400)],
+        500,
+        9,
+    )
+    .expect("issue_cat")
+    .coin_spends
+}
+
+#[test]
+fn golden_issue_cat() {
+    assert_vector(
+        "issue_cat (single-issuance CAT eve spend)",
+        &issue_cat_vector(),
+        ISSUE_CAT_DIGEST,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Vectors: lazy mint commit + claim
 // ---------------------------------------------------------------------------
 
@@ -318,6 +347,7 @@ fn golden_lazy_mint_claim() {
 // A migration is correct exactly when these still hold.
 // ---------------------------------------------------------------------------
 
+const ISSUE_CAT_DIGEST: &str = "9a3e4c67eac882abcc5911d48eab672796ce9a7adea08b8203563b91309abc11";
 const MINT_STORE_DIGEST: &str = "a6148f4916bd5a98b0eeb5a94dac93eea71eb067fa4c1bb34ed57e2781c7c017";
 const DIG_PAYMENT_DIGEST: &str = "24a7878357a682bc871e7837a3decf48577a33a913ea7a2edddd02abceb5928a";
 const XCH_PAYMENT_DIGEST: &str = "e3ab0ce2faa31b1bad741160f6daf656fb96fe2dc7b2b32a218944f3c4c361fb";
