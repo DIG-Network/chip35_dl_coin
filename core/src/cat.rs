@@ -68,9 +68,13 @@ pub fn issue_cat(
     // Issue the CAT from the lead coin: the eve issuance returns the conditions the lead coin must
     // emit (mint the CAT to the issuer) plus the resulting CAT coins.
     let issuer_hint = ctx.hint(issuer_puzzle_hash)?;
-    let (issue_conditions, cats) = Cat::issue_with_coin(
+    // `single_issuance` is chia-sdk-driver 0.34's name for what 0.30 called `issue_with_coin`; the
+    // extra `hidden_puzzle_hash` argument is the revocable-CAT hook, and `None` keeps the plain
+    // (non-revocable) CAT the old call produced.
+    let (issue_conditions, cats) = Cat::single_issuance(
         &mut ctx,
         lead_coin_name,
+        None,
         amount,
         Conditions::new().create_coin(issuer_puzzle_hash, amount, issuer_hint),
     )?;

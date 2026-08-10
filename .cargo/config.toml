@@ -1,0 +1,7 @@
+# getrandom 0.3 (reached via chia-sdk 0.34) refuses to build for wasm32-unknown-unknown unless the
+# browser backend is selected by cfg. Its own error is explicit that the `wasm_js` FEATURE alone is
+# not enough — the cfg below is the other half, and it can only be set here (a build flag, not a
+# manifest key). Without it `cargo build --target wasm32-unknown-unknown` fails at compile time,
+# which is how this was found rather than shipped.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

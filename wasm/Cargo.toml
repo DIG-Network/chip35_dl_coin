@@ -1,6 +1,6 @@
 [package]
 name = "chip35-dl-coin-wasm"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -24,7 +24,11 @@ serde_json = "1"
 serde-wasm-bindgen = "0.6"
 console_error_panic_hook = { version = "0.1", optional = true }
 hex = "0.4"
-getrandom = { version = "0.2", features = ["js"] }
+# Pulled in explicitly (not used directly) so the browser randomness backend is selected for
+# wasm32. chia-sdk 0.34 moved to getrandom 0.3, where the browser backend is chosen by the
+# `getrandom_backend="wasm_js"` cfg in `.cargo/config.toml` AND this feature — the feature alone is
+# insufficient and the build fails loudly without the cfg.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
