@@ -2,7 +2,7 @@
 
 Isolated **CHIP-0035 Chia DataLayer store coin** driver, compiled to **WebAssembly**, with a **Next.js demo app** that lists, mints, updates, and deletes DataLayer stores using the **Sage** wallet over **WalletConnect**.
 
-The driver was extracted from [`DataLayer-Driver`](https://github.com/DIG-Network/DataLayer-Driver) and depends only on upstream `chia-*` crates — no networking, no signing, no key derivation inside the WASM. It builds the coin spends; the consumer (the demo app) handles keys, coin selection, signing (Sage), and broadcast (coinset.org). Spend-bundle output is byte-for-byte identical to `DataLayer-Driver` (both rest on `chia-sdk-driver` 0.30 chip-0035).
+The driver was extracted from [`DataLayer-Driver`](https://github.com/DIG-Network/DataLayer-Driver) and depends only on upstream `chia-*` crates — no networking, no signing, no key derivation inside the WASM. It builds the coin spends; the consumer (the demo app) handles keys, coin selection, signing (Sage), and broadcast (coinset.org). Spend-bundle output is byte-for-byte identical to `DataLayer-Driver` (both rest on `chia-sdk-driver` 0.34 chip-0035, over the chia 0.36.1 crate line).
 
 ## Layout
 
