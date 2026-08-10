@@ -31,3 +31,21 @@ serde_json = "1"
 chia-sdk-test = "0.34.0"
 clvm-utils = "0.36.1"
 anyhow = "1"
+
+# chia-sdk 0.34 reaches getrandom 0.3, which has NO backend for wasm32-unknown-unknown unless the
+# browser one is selected. Selecting it HERE — rather than in a `.cargo/config.toml` — is what makes
+# this crate usable from a downstream wasm32 consumer with no build flags of their own: cargo unifies
+# features across the graph, so anyone depending on chip35-dl-coin inherits the backend. A
+# `.cargo/config.toml` cannot do that, because cargo does not publish it with the crate.
+#
+# getrandom's own compile error claims the feature alone is insufficient and a
+# `getrandom_backend="wasm_js"` cfg is also required. As of 0.3.4 that text is stale: `src/backends.rs`
+# selects the wasm_js backend on the bare `feature = "wasm_js"` when the target is wasm32 and no
+# explicit backend cfg is set. Verified by building `--target wasm32-unknown-unknown` with the feature
+# and no cfg. If a future getrandom re-tightens this, the cfg goes in the CONSUMER's config.toml.
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# getrandom is a backend selection, never called from this crate.
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]

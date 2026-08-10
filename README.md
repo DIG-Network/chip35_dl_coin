@@ -37,6 +37,43 @@ Each mint / update / delete: builds coin spends in WASM → Sage signs (`chip000
 - **Sage wallet** (desktop) set to the network you'll use (this demo targets **mainnet**)
 - A free **WalletConnect / Reown project ID** from <https://cloud.reown.com>
 
+### Using `chip35-dl-coin` as a Rust dependency
+
+```toml
+[dependencies]
+chip35-dl-coin = "0.10"
+```
+
+The crate tracks the **chia 0.36.1 / chia-sdk 0.34** line. Its re-exported chia types (`SpendBundle`,
+`CoinSpend`, `Bytes32`, `Cat`, …) are part of its public surface and do **not** unify across chia
+lines, so a consumer that mixes this crate with another chia-dependent crate must be on the same
+line.
+
+**Targeting `wasm32-unknown-unknown` requires nothing extra.** chia-sdk 0.34 reaches `getrandom` 0.3,
+which has no default backend for that target, so this crate selects the browser backend for you as a
+target-gated dependency:
+
+```toml
+# already in core/Cargo.toml — you do not need to repeat it
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+```
+
+Cargo unifies features across the graph, so depending on `chip35-dl-coin` is enough. This is
+deliberately not a `.cargo/config.toml`: cargo does not publish that file with a crate, so a
+config-based fix would work inside this repository and fail for every consumer of it.
+
+If a future `getrandom` requires the backend cfg as well as the feature (its 0.3.4 error text claims
+so, but 0.3.4 itself does not), the flag belongs in **your** binary's `.cargo/config.toml`:
+
+```toml
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+```
+
+The full normative contract — the keyless boundary, the store lifecycle, the $DIG payment shape, the
+golden vectors and the versioning rules — is [`SPEC.md`](SPEC.md).
+
 > ⚠️ **Mainnet, real funds.** Mint/update/delete spend real XCH and pay real fees. Use small amounts. There is no automated end-to-end test of the wallet/chain flow — it is verified manually.
 
 ---

@@ -610,6 +610,7 @@ dependencies = [
  "clvm-utils",
  "clvmr",
  "dig-constants",
+ "getrandom 0.3.4",
  "hex",
  "hex-literal",
  "serde",
@@ -623,7 +624,6 @@ version = "0.16.0"
 dependencies = [
  "chip35-dl-coin",
  "console_error_panic_hook",
- "getrandom 0.3.4",
  "hex",
  "js-sys",
  "serde",
