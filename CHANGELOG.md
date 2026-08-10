@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.16.0] - 2026-08-10
+
+### Chores
+- **deps:** Migrate to chia 0.36.1 / chia-sdk 0.34 and publish the crate (#11)
+
 ## [0.15.0] - 2026-07-29
 
 ### Features
