@@ -10,12 +10,13 @@ use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend, SpendBundle};
 use chia_puzzle_types::standard::StandardArgs;
 use chia_puzzles::SINGLETON_LAUNCHER_HASH;
 use chia_sdk_driver::{
-    get_merkle_tree, DataStore, DataStoreMetadata, DelegatedPuzzle, DriverError, Launcher, Layer,
-    OracleLayer, SpendContext, SpendWithConditions, StandardLayer, WriterLayer,
+    get_merkle_tree, Datastore as DataStore, DatastoreMetadata as DataStoreMetadata,
+    DelegatedPuzzle, DriverError, Launcher, Layer, OracleLayer, SpendContext, SpendWithConditions,
+    StandardLayer, WriterLayer,
 };
 use chia_sdk_types::{
     announcement_id,
-    conditions::{CreateCoin, MeltSingleton, UpdateDataStoreMerkleRoot},
+    conditions::{CreateCoin, MeltSingleton, UpdateDatastoreMerkleRoot},
     Condition, Conditions,
 };
 use clvm_traits::ToClvm;
@@ -310,7 +311,7 @@ fn update_store_with_conditions(
 ///
 /// An [`Owner`](DataStoreInnerSpend::Owner) spend re-creates the singleton under
 /// `new_owner_puzzle_hash` with `new_delegated_puzzles`. An [`Admin`](DataStoreInnerSpend::Admin)
-/// spend cannot move ownership directly, so it instead emits an `UpdateDataStoreMerkleRoot`
+/// spend cannot move ownership directly, so it instead emits an `UpdateDatastoreMerkleRoot`
 /// condition over the new delegated-puzzle set (recreation memos pin the owner). Returns the new
 /// [`DataStore`] state.
 ///
@@ -339,7 +340,7 @@ pub fn update_store_ownership(
         DataStoreInnerSpend::Admin(_) => {
             let merkle_tree = get_merkle_tree(ctx, new_delegated_puzzles.clone())?;
 
-            let new_merkle_root_condition = UpdateDataStoreMerkleRoot {
+            let new_merkle_root_condition = UpdateDatastoreMerkleRoot {
                 new_merkle_root: merkle_tree.root(),
                 memos: DataStore::<DataStoreMetadata>::get_recreation_memos(
                     datastore.info.launcher_id,
