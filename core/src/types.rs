@@ -1,5 +1,5 @@
 use chia_protocol::CoinSpend;
-use chia_sdk_driver::DataStore;
+use chia_sdk_driver::Datastore as DataStore;
 
 /// Result of a store-creating/updating spend: the coin spends plus the
 /// resulting on-chain store state to feed into the next update.

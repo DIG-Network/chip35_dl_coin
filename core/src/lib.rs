@@ -26,8 +26,14 @@ mod types;
 pub use chia_bls::{master_to_wallet_unhardened, PublicKey, SecretKey, Signature};
 pub use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend, Program, SpendBundle};
 pub use chia_puzzle_types::{EveProof, LineageProof, Proof};
+// chia-sdk-driver 0.36 respelled `DataStore*` as `Datastore*`. This crate keeps the original
+// spelling because it is echoed verbatim by the wasm bindings' exported names and their generated
+// TypeScript declarations (`wasm/src/ts.rs`), which are a published JavaScript contract; renaming
+// the Rust type would break every JS consumer for a purely cosmetic upstream change. The alias is
+// confined to this one boundary so the rest of the crate speaks a single spelling.
 pub use chia_sdk_driver::{
-    DataStore, DataStoreInfo, DataStoreMetadata, DelegatedPuzzle, Did, DidInfo, HashedPtr,
+    Datastore as DataStore, DatastoreInfo as DataStoreInfo, DatastoreMetadata as DataStoreMetadata,
+    DelegatedPuzzle, Did, DidInfo, HashedPtr,
 };
 
 pub use error::{Error, WalletError};
