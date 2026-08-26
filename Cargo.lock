@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "chip35-dl-coin"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "chia-bls 0.36.1",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "chip35-dl-coin-wasm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "chip35-dl-coin",
  "console_error_panic_hook",

@@ -159,18 +159,23 @@ constructed, so a rejected call has no partial effect.
 
 ### 6.1 Dependency line
 
-The crate tracks the **chia 0.36.1 / chia-sdk 0.34** line, with `chia-sdk-driver` and
-`chia-sdk-types` built with the `chip-0035`, `action-layer` and `offer-compression` features. This
-is the same line as `DataLayer-Driver`, and the match is required: spend-bundle output is
-byte-for-byte identical to that driver, and a `SpendBundle` produced here must be the same Rust type
-as one produced by the other DIG spend builders so the two can be composed into a single bundle.
+The crate tracks the **chia 0.36.1 / chia-sdk 0.36** line, with `chia-sdk-driver` and
+`chia-sdk-types` built with the `chip-0035`, `action-layer` and `offer-compression` features.
+`chia-sdk` 0.36 is the highest published release of that family; the `chia-*` primitives publish
+beyond 0.36.1 but are unreachable from it, so 0.36 is a ceiling rather than a lag.
+
+Spend-bundle output remains byte-for-byte identical to `DataLayer-Driver`: the CHIP-0035 delegation,
+writer and oracle layers and the store launcher are unchanged across `chia-sdk` 0.34 → 0.36, and the
+golden vectors in `core/tests/golden_vectors.rs` reproduce unmodified. Rust *type identity* is a
+separate matter — a `SpendBundle` composes with another DIG spend builder's only when both are on
+this same line, so every crate whose bundles are concatenated with these MUST track it.
 
 The crate MUST NOT vendor or `[patch]` a chia crate. crates.io strips patch and vendored
 dependencies, so such a crate publishes green and ships broken.
 
 ### 6.2 wasm32 consumers
 
-`chia-sdk` 0.34 reaches `getrandom` 0.3, which has **no default backend for
+`chia-sdk` 0.36 reaches `getrandom` 0.3, which has **no default backend for
 `wasm32-unknown-unknown`**. This crate selects the browser backend on the consumer's behalf, as a
 target-gated dependency in `core/Cargo.toml`:
 

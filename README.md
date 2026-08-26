@@ -2,7 +2,7 @@
 
 Isolated **CHIP-0035 Chia DataLayer store coin** driver, compiled to **WebAssembly**, with a **Next.js demo app** that lists, mints, updates, and deletes DataLayer stores using the **Sage** wallet over **WalletConnect**.
 
-The driver was extracted from [`DataLayer-Driver`](https://github.com/DIG-Network/DataLayer-Driver) and depends only on upstream `chia-*` crates — no networking, no signing, no key derivation inside the WASM. It builds the coin spends; the consumer (the demo app) handles keys, coin selection, signing (Sage), and broadcast (coinset.org). Spend-bundle output is byte-for-byte identical to `DataLayer-Driver` (both rest on `chia-sdk-driver` 0.34 chip-0035, over the chia 0.36.1 crate line).
+The driver was extracted from [`DataLayer-Driver`](https://github.com/DIG-Network/DataLayer-Driver) and depends only on upstream `chia-*` crates — no networking, no signing, no key derivation inside the WASM. It builds the coin spends; the consumer (the demo app) handles keys, coin selection, signing (Sage), and broadcast (coinset.org). Spend-bundle output is byte-for-byte identical to `DataLayer-Driver` (both rest on the same `chia-sdk-driver` chip-0035 layers, over the chia 0.36.1 crate line).
 
 ## Layout
 
@@ -44,12 +44,12 @@ Each mint / update / delete: builds coin spends in WASM → Sage signs (`chip000
 chip35-dl-coin = "0.10"
 ```
 
-The crate tracks the **chia 0.36.1 / chia-sdk 0.34** line. Its re-exported chia types (`SpendBundle`,
+The crate tracks the **chia 0.36.1 / chia-sdk 0.36** line. Its re-exported chia types (`SpendBundle`,
 `CoinSpend`, `Bytes32`, `Cat`, …) are part of its public surface and do **not** unify across chia
 lines, so a consumer that mixes this crate with another chia-dependent crate must be on the same
 line.
 
-**Targeting `wasm32-unknown-unknown` requires nothing extra.** chia-sdk 0.34 reaches `getrandom` 0.3,
+**Targeting `wasm32-unknown-unknown` requires nothing extra.** chia-sdk 0.36 reaches `getrandom` 0.3,
 which has no default backend for that target, so this crate selects the browser backend for you as a
 target-gated dependency:
 

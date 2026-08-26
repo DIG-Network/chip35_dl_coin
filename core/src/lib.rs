@@ -32,8 +32,8 @@ pub use chia_puzzle_types::{EveProof, LineageProof, Proof};
 // the Rust type would break every JS consumer for a purely cosmetic upstream change. The alias is
 // confined to this one boundary so the rest of the crate speaks a single spelling.
 pub use chia_sdk_driver::{
-    DelegatedPuzzle, Did, DidInfo, Datastore as DataStore, DatastoreInfo as DataStoreInfo,
-    DatastoreMetadata as DataStoreMetadata, HashedPtr,
+    Datastore as DataStore, DatastoreInfo as DataStoreInfo, DatastoreMetadata as DataStoreMetadata,
+    DelegatedPuzzle, Did, DidInfo, HashedPtr,
 };
 
 pub use error::{Error, WalletError};
